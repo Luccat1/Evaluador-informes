@@ -223,53 +223,76 @@ function onOpen() {
  * Función orquestadora principal.
  * 1. Lee datos. 2. Prepara carpetas/recursos. 3. Procesa estadísticas. 4. Genera Docs.
  */
+/**
+ * Función orquestadora principal.
+ * 1. Lee datos. 2. Prepara carpetas/recursos. 3. Procesa estadísticas. 4. Genera Docs.
+ */
 function generateReports() {
-    const ui = SpreadsheetApp.getUi();
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    const data = sheet.getDataRange().getValues();
-
-    if (data.length < 2) {
-        ui.alert('⚠️ No hay suficientes datos para procesar.');
-        return;
-    }
-
-    // 1. Preparar Entorno (Carpetas y Logo)
-    const env = setupEnvironment();
-    if (!env) return; // Error crítico en setup
-
-    // 2. Procesar Datos
-    const processedData = processData(data);
-
-    // 3. Calcular Estadísticas Globales (Semestre)
-    const semesterStats = calculateSemesterStats(processedData);
-
-    // 4. Generar Reportes Individuales
-    let count = 0;
-    let errors = [];
-
-    for (const key in processedData) {
-        try {
-            const courseData = processedData[key];
-            const docId = createReportDoc(courseData, semesterStats, env.folder, env.logoBlob);
-            
-            // Registrar en Hoja de Control (Protegido)
-            try {
-                logReportGenerated(courseData.professor, courseData.course, docId, env.folder.getUrl());
-            } catch (e) {
-                console.warn(`Error registrando reporte de ${courseData.professor}: ${e.message}`);
-            }
-            
-            count++;
-        } catch (e) {
-            console.error(`Error generando reporte para ${key}: ${e.message}`);
-            errors.push(`${key}: ${e.message}`);
+    const lock = LockService.getScriptLock();
+    // Bloqueo más corto para generación (10s), si está ocupado, mejor avisar rápido
+    try {
+        if (!lock.tryLock(10000)) {
+            SpreadsheetApp.getUi().alert('⚠️ Ya se están generando reportes en segundo plano. Espera a que termine.');
+            return;
         }
+    } catch (e) {
+        console.error("Error Lock generación:", e);
+        return; 
     }
 
-    if (errors.length > 0) {
-        ui.alert(`⚠️ Proceso completado con alertas.\n\nSe generaron ${count} reportes.\nHubo ${errors.length} errores:\n${errors.slice(0, 5).join('\n')}`);
-    } else {
-        ui.alert(`✅ Proceso completado con éxito.\n\nSe generaron ${count} reportes en la carpeta:\n"${env.folder.getName()}"`);
+    try {
+        const ui = SpreadsheetApp.getUi();
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+        const data = sheet.getDataRange().getValues();
+
+        if (data.length < 2) {
+            ui.alert('⚠️ No hay suficientes datos para procesar.');
+            return;
+        }
+
+        // 1. Preparar Entorno (Carpetas y Logo)
+        const env = setupEnvironment();
+        if (!env) return; // Error crítico en setup
+
+        // 2. Procesar Datos
+        const processedData = processData(data);
+
+        // 3. Calcular Estadísticas Globales (Semestre)
+        const semesterStats = calculateSemesterStats(processedData);
+
+        // 4. Generar Reportes Individuales
+        let count = 0;
+        let errors = [];
+
+        for (const key in processedData) {
+            try {
+                const courseData = processedData[key];
+                const docId = createReportDoc(courseData, semesterStats, env.folder, env.logoBlob);
+                
+                // Registrar en Hoja de Control (Protegido)
+                try {
+                    logReportGenerated(courseData.professor, courseData.course, docId, env.folder.getUrl());
+                } catch (e) {
+                    console.warn(`Error registrando reporte de ${courseData.professor}: ${e.message}`);
+                }
+                
+                count++;
+            } catch (e) {
+                console.error(`Error generando reporte para ${key}: ${e.message}`);
+                errors.push(`${key}: ${e.message}`);
+            }
+        }
+
+        if (errors.length > 0) {
+            ui.alert(`⚠️ Proceso completado con alertas.\n\nSe generaron ${count} reportes.\nHubo ${errors.length} errores:\n${errors.slice(0, 5).join('\n')}`);
+        } else {
+            ui.alert(`✅ Proceso completado con éxito.\n\nSe generaron ${count} reportes en la carpeta:\n"${env.folder.getName()}"`);
+        }
+    } catch (e) {
+        console.error("Error fatal generando reportes:", e);
+        SpreadsheetApp.getUi().alert(`❌ Error crítico: ${e.message}`);
+    } finally {
+        lock.releaseLock();
     }
 }
 

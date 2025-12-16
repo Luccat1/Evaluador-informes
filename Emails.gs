@@ -85,114 +85,132 @@ function parseEmailList(input) {
 /**
  * Proceso batch de envío de correos.
  */
-function sendReportEmails() {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheetLog = ss.getSheetByName(EMAIL_CONFIG.SHEET_LOG);
-    const sheetDir = ss.getSheetByName(EMAIL_CONFIG.SHEET_DIR);
+const LOCK_TIMEOUT_MS = 30000; // 30 segundos de espera para el bloqueo
 
-    if (!sheetLog || !sheetDir) {
-        SpreadsheetApp.getUi().alert('⚠️ Error: Falta la hoja "Registro_Reportes" o "Directorio".\nEjecuta primero la generación de reportes y crea la hoja de directorio.');
+/**
+ * Proceso batch de envío de correos.
+ * Protegido contra ejecuciones concurrentes.
+ */
+function sendReportEmails() {
+    const lock = LockService.getScriptLock();
+    
+    // Intentar adquirir el bloqueo
+    try {
+        if (!lock.tryLock(LOCK_TIMEOUT_MS)) {
+            SpreadsheetApp.getUi().alert('⚠️ Error: Ya hay un proceso de envío en curso. Por favor espera a que termine.');
+            return;
+        }
+    } catch (e) {
+        console.error("Error al adquirir Lock:", e);
+        SpreadsheetApp.getUi().alert('⚠️ Error de sistema al iniciar el proceso.');
         return;
     }
 
-    const logData = sheetLog.getDataRange().getValues();
-    const dirData = sheetDir.getDataRange().getValues();
-    
-    // Crear mapa de directorio
-    const directoryMap = {};
-    dirData.slice(1).forEach(row => {
-        const name = row[EMAIL_CONFIG.COL_DIR_NAME];
-        if (name) {
-            directoryMap[name.toString().trim().toLowerCase()] = {
-                email: row[EMAIL_CONFIG.COL_DIR_EMAIL],
-                cc: row[EMAIL_CONFIG.COL_DIR_CC]
-            };
-        }
-    });
+    try {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const sheetLog = ss.getSheetByName(EMAIL_CONFIG.SHEET_LOG);
+        const sheetDir = ss.getSheetByName(EMAIL_CONFIG.SHEET_DIR);
 
-    let sentCount = 0;
-    let errorCount = 0;
-    const globalCcList = parseEmailList(EMAIL_CONFIG.AUTHORITIES_CC);
-
-    // Iterar por registros
-    for (let i = 1; i < logData.length; i++) {
-        const row = logData[i];
-        const status = row[EMAIL_CONFIG.COL_LOG_STATUS];
-
-        if (status !== "PENDIENTE") continue;
-
-        const professorName = row[EMAIL_CONFIG.COL_LOG_PROFESSOR];
-        const courseName = row[EMAIL_CONFIG.COL_LOG_COURSE];
-        const docId = row[EMAIL_CONFIG.COL_LOG_DOC_ID];
-        const docUrl = row[EMAIL_CONFIG.COL_LOG_URL];
-
-        // Buscar datos contacto
-        const dirEntry = directoryMap[professorName.toString().trim().toLowerCase()];
-
-        if (!dirEntry || !dirEntry.email) {
-            sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ERROR: Email no encontrado");
-            errorCount++;
-            continue;
+        if (!sheetLog || !sheetDir) {
+            SpreadsheetApp.getUi().alert('⚠️ Error: Falta la hoja "Registro_Reportes" o "Directorio".\nEjecuta primero la generación de reportes y crea la hoja de directorio.');
+            return;
         }
 
-        try {
-            // Preparar Lista Total de CC (Autoridades + Específicos)
-            // Usamos un Set para evitar duplicados si la autoridad está también en la lista específica
-            const ccSet = new Set(globalCcList);
-            const specificCcList = parseEmailList(dirEntry.cc);
-            specificCcList.forEach(e => ccSet.add(e));
-            
-            const finalCcList = Array.from(ccSet);
+        const logData = sheetLog.getDataRange().getValues();
+        const dirData = sheetDir.getDataRange().getValues();
+        
+        // Crear mapa de directorio
+        const directoryMap = {};
+        dirData.slice(1).forEach(row => {
+            const name = row[EMAIL_CONFIG.COL_DIR_NAME];
+            if (name) {
+                directoryMap[name.toString().trim().toLowerCase()] = {
+                    email: row[EMAIL_CONFIG.COL_DIR_EMAIL],
+                    cc: row[EMAIL_CONFIG.COL_DIR_CC]
+                };
+            }
+        });
 
-            // 1. Dar Permisos de Lectura (Google Drive) - SILENCIOSO
-            // -----------------------------------------
-            // Permiso al Profesor
-            if (dirEntry.email && dirEntry.email.includes("@")) {
-                addViewerSilently_(docId, dirEntry.email.trim());
+        let sentCount = 0;
+        let errorCount = 0;
+        const globalCcList = parseEmailList(EMAIL_CONFIG.AUTHORITIES_CC);
+        const userEmail = Session.getActiveUser().getEmail();
+
+        // Iterar por registros
+        for (let i = 1; i < logData.length; i++) {
+            const row = logData[i];
+            const status = row[EMAIL_CONFIG.COL_LOG_STATUS];
+
+            if (status !== "PENDIENTE") continue;
+
+            const professorName = row[EMAIL_CONFIG.COL_LOG_PROFESSOR];
+            const courseName = row[EMAIL_CONFIG.COL_LOG_COURSE];
+            const docId = row[EMAIL_CONFIG.COL_LOG_DOC_ID];
+            const docUrl = row[EMAIL_CONFIG.COL_LOG_URL];
+
+            // Buscar datos contacto
+            const dirEntry = directoryMap[professorName.toString().trim().toLowerCase()];
+
+            if (!dirEntry || !dirEntry.email) {
+                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ERROR: Email no encontrado");
+                errorCount++;
+                continue;
             }
 
-            // Permiso a los CC (Autoridades + Copias)
-            finalCcList.forEach(email => {
-                addViewerSilently_(docId, email);
-            });
+            try {
+                // Preparar Lista Total de CC (Autoridades + Específicos)
+                const ccSet = new Set(globalCcList);
+                const specificCcList = parseEmailList(dirEntry.cc);
+                specificCcList.forEach(e => ccSet.add(e));
+                
+                const finalCcList = Array.from(ccSet);
 
-            // 2. Construir y Enviar Correo
-            // ----------------------------
-            const htmlBody = getEmailTemplate(professorName, courseName, docUrl);
-            const userEmail = Session.getActiveUser().getEmail();
+                // 1. Dar Permisos de Lectura (Silencioso)
+                addViewerSilently_(docId, dirEntry.email.trim()); // Profesor
+                finalCcList.forEach(email => addViewerSilently_(docId, email)); // Copias
 
-            const emailOptions = {
-                htmlBody: htmlBody,
-                name: EMAIL_CONFIG.SENDER_NAME,
-                bcc: userEmail // Copia oculta al remitente
-            };
+                // 2. Construir y Enviar Correo
+                const htmlBody = getEmailTemplate(professorName, courseName, docUrl);
+                
+                const emailOptions = {
+                    htmlBody: htmlBody,
+                    name: EMAIL_CONFIG.SENDER_NAME,
+                    bcc: userEmail // Copia oculta trazabilidad
+                };
 
-            if (finalCcList.length > 0) {
-                emailOptions.cc = finalCcList.join(",");
+                if (finalCcList.length > 0) {
+                    emailOptions.cc = finalCcList.join(",");
+                }
+
+                // Usar Alias si corresponde
+                const aliases = getAliasesSafe_();
+                if (aliases.includes(EMAIL_CONFIG.SENDER_EMAIL)) {
+                    emailOptions.from = EMAIL_CONFIG.SENDER_EMAIL;
+                }
+
+                GmailApp.sendEmail(dirEntry.email, EMAIL_CONFIG.SUBJECT_TEMPLATE(courseName), "", emailOptions);
+
+                // 3. Actualizar Log
+                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ENVIADO");
+                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 2).setValue(`Enviado a: ${dirEntry.email}`);
+                sentCount++;
+
+            } catch (e) {
+                console.error(`Error enviando a ${professorName}:`, e);
+                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ERROR ENVÍO");
+                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 2).setValue(e.toString());
+                errorCount++;
             }
-
-            // Usar Alias si corresponde
-            const aliases = getAliasesSafe_();
-            if (aliases.includes(EMAIL_CONFIG.SENDER_EMAIL)) {
-                emailOptions.from = EMAIL_CONFIG.SENDER_EMAIL;
-            }
-
-            GmailApp.sendEmail(dirEntry.email, EMAIL_CONFIG.SUBJECT_TEMPLATE(courseName), "", emailOptions);
-
-            // 3. Actualizar Log
-            sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ENVIADO");
-            sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 2).setValue(`Enviado a: ${dirEntry.email}`);
-            sentCount++;
-
-        } catch (e) {
-            console.error(e);
-            sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ERROR ENVÍO");
-            sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 2).setValue(e.toString());
-            errorCount++;
         }
+
+        SpreadsheetApp.getUi().alert(`✅ Proceso Finalizado.\n\nEnviados: ${sentCount}\nErrores: ${errorCount}`);
+
+    } catch (e) {
+        console.error("Error fatal en proceso de envío:", e);
+        SpreadsheetApp.getUi().alert(`❌ Error crítico: ${e.message}`);
+    } finally {
+        lock.releaseLock();
     }
-
-    SpreadsheetApp.getUi().alert(`✅ Proceso Finalizado.\n\nEnviados: ${sentCount}\nErrores: ${errorCount}`);
 }
 
 /**

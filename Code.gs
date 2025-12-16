@@ -79,8 +79,13 @@ const CONFIG = {
 
     // --- Configuración de Archivos ---
     FILES: {
-        LOGO_NAME: "logo_pucv_100.png", // Nombre del archivo de logo en Drive
+        LOGO_NAME: "Grilla_arriba_color.png", // Nombre del archivo de logo en Drive
         LOGO_URL: "https://comunicacionestrategica.pucv.cl/LOGO100/7/color.png" // URL de respaldo
+    },
+
+    // --- Umbrales de Evaluación ---
+    THRESHOLDS: {
+        CRITICAL: 4.0 // Nota mínima aceptable (la escala es 1-5, bajo 4.0 es alerta)
     }
 };
 
@@ -100,8 +105,10 @@ const THEME = {
         TEXT_MAIN: "#333333",  // Texto Principal
         TEXT_LIGHT: "#555555", // Texto Secundario
         BG_HEADER: "#ece5e0",  // Beige (Fondos de tabla)
-        POSITIVE: "#008cba",   // Azul (Fortalezas)
-        NEGATIVE: "#e73a34"    // Rojo (Oportunidades de mejora)
+        BG_HEADER: "#ece5e0",  // Beige (Fondos de tabla)
+        POSITIVE: "#008cba",   // Azul (Fortalezas / Sobre Media)
+        NEUTRAL: "#333333",    // Gris Oscuro (Adecuado / Estándar)
+        NEGATIVE: "#e73a34"    // Rojo (Alerta / Bajo Estándar)
     },
 
     // --- Tipografía ---
@@ -143,7 +150,9 @@ const THEME = {
     T.STYLES.H1[A.FOREGROUND_COLOR] = T.COLORS.PRIMARY;
     T.STYLES.H1[A.SPACING_BEFORE] = 14;
     T.STYLES.H1[A.SPACING_AFTER] = 6;
+    T.STYLES.H1[A.SPACING_AFTER] = 6;
     T.STYLES.H1[A.FONT_FAMILY] = T.FONTS.MAIN;
+    T.STYLES.H1[A.ITALIC] = false; // Asegurar no cursiva
 
     // H2 (Subtítulos)
     T.STYLES.H2[A.FONT_SIZE] = 11;
@@ -158,7 +167,9 @@ const THEME = {
     T.STYLES.NORMAL[A.FONT_FAMILY] = T.FONTS.MAIN;
     T.STYLES.NORMAL[A.FOREGROUND_COLOR] = T.COLORS.TEXT_MAIN;
     T.STYLES.NORMAL[A.LINE_SPACING] = 1.15;
+    T.STYLES.NORMAL[A.LINE_SPACING] = 1.15;
     T.STYLES.NORMAL[A.BOLD] = false; // Forzar no-negrita
+    T.STYLES.NORMAL[A.ITALIC] = false; // Forzar no-cursiva (Fix crítico)
 
     // Etiquetas (Label: Valor)
     T.STYLES.LABEL[A.FONT_SIZE] = 10;
@@ -178,12 +189,14 @@ const THEME = {
     T.STYLES.TABLE_CELL_LEFT[A.HORIZONTAL_ALIGNMENT] = H.LEFT;
     T.STYLES.TABLE_CELL_LEFT[A.FOREGROUND_COLOR] = T.COLORS.TEXT_MAIN; // Forzar color texto
     T.STYLES.TABLE_CELL_LEFT[A.BOLD] = false; // Forzar no-negrita
+    T.STYLES.TABLE_CELL_LEFT[A.ITALIC] = false; // Forzar no-cursiva
 
     T.STYLES.TABLE_CELL_CENTER[A.FONT_SIZE] = 10;
     T.STYLES.TABLE_CELL_CENTER[A.FONT_FAMILY] = T.FONTS.MAIN;
     T.STYLES.TABLE_CELL_CENTER[A.HORIZONTAL_ALIGNMENT] = H.CENTER;
     T.STYLES.TABLE_CELL_CENTER[A.FOREGROUND_COLOR] = T.COLORS.TEXT_MAIN; // Forzar color texto
     T.STYLES.TABLE_CELL_CENTER[A.BOLD] = false; // Forzar no-negrita
+    T.STYLES.TABLE_CELL_CENTER[A.ITALIC] = false; // Forzar no-cursiva
 })();
 
 
@@ -198,6 +211,11 @@ function onOpen() {
     SpreadsheetApp.getUi()
         .createMenu('Evaluación Docente')
         .addItem('📊 Generar Reportes', 'generateReports')
+        .addSeparator()
+        .addItem('📧 Enviar Correos Masivos', 'launchEmailSender')
+        .addItem('📋 Crear Plantilla Directorio', 'createDirectoryTemplate')
+        .addSeparator()
+        .addItem('🧪 Enviar Prueba de Diseño', 'sendTestEmail')
         .addToUi();
 }
 
@@ -227,13 +245,32 @@ function generateReports() {
 
     // 4. Generar Reportes Individuales
     let count = 0;
+    let errors = [];
+
     for (const key in processedData) {
-        const courseData = processedData[key];
-        createReportDoc(courseData, semesterStats, env.folder, env.logoBlob);
-        count++;
+        try {
+            const courseData = processedData[key];
+            const docId = createReportDoc(courseData, semesterStats, env.folder, env.logoBlob);
+            
+            // Registrar en Hoja de Control (Protegido)
+            try {
+                logReportGenerated(courseData.professor, courseData.course, docId, env.folder.getUrl());
+            } catch (e) {
+                console.warn(`Error registrando reporte de ${courseData.professor}: ${e.message}`);
+            }
+            
+            count++;
+        } catch (e) {
+            console.error(`Error generando reporte para ${key}: ${e.message}`);
+            errors.push(`${key}: ${e.message}`);
+        }
     }
 
-    ui.alert(`✅ Proceso completado con éxito.\n\nSe generaron ${count} reportes en la carpeta:\n"${env.folder.getName()}"`);
+    if (errors.length > 0) {
+        ui.alert(`⚠️ Proceso completado con alertas.\n\nSe generaron ${count} reportes.\nHubo ${errors.length} errores:\n${errors.slice(0, 5).join('\n')}`);
+    } else {
+        ui.alert(`✅ Proceso completado con éxito.\n\nSe generaron ${count} reportes en la carpeta:\n"${env.folder.getName()}"`);
+    }
 }
 
 /**
@@ -452,6 +489,7 @@ function calculateCourseStats(courseData) {
 function createReportDoc(courseData, semesterStats, folder, logoBlob) {
     const docName = `Informe - ${courseData.professor} - ${courseData.course}`;
     const doc = DocumentApp.create(docName);
+    const docId = doc.getId(); // Guardar ID
     const body = doc.getBody();
 
     // Mover a carpeta
@@ -461,11 +499,13 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
     const header = doc.addHeader();
     if (logoBlob) {
         const img = header.appendImage(logoBlob);
-        // Ajuste de tamaño proporcional (ancho base 450px)
-        const newWidth = 450;
+        // Ajuste de tamaño proporcional (ancho base 350px para que no sea muy grande)
+        const newWidth = 350;
         const newHeight = (img.getHeight() * newWidth) / img.getWidth();
         img.setWidth(newWidth).setHeight(newHeight);
-        header.appendParagraph("").setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+        
+        // Corrección de centrado: Alinear el párrafo contenedor de la imagen
+        img.getParent().asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER);
     }
 
     // Texto Institucional (Siempre visible)
@@ -501,7 +541,7 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
     }
 
     const dimensionsAbove = [];
-    const dimensionsBelow = [];
+    const dimensionsBelow = []; // Ahora solo contendrá las críticas (< 4.0)
 
     for (let i = 0; i < CONFIG.TEACHING_DIMENSIONS_COUNT; i++) {
         const dim = CONFIG.DIMENSIONS[i];
@@ -509,12 +549,33 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
         if (!s) continue;
 
         const semMean = semesterStats.meansByDimension[dim] || CONFIG.SEMESTER_MEANS.DEFAULT;
-        const isAbove = s.mean >= semMean;
-        const comparison = isAbove ? "Sobre media" : "Bajo media";
-        const rowColor = isAbove ? THEME.COLORS.POSITIVE : THEME.COLORS.NEGATIVE;
+        
+        // Lógica de Comparación con Redondeo a 1 decimal
+        const meanCourse = Math.round(s.mean * 10) / 10;
+        const meanSem = Math.round(semMean * 10) / 10;
+        
+        let statusText = "";
+        let rowColor = THEME.COLORS.NEUTRAL;
+        let isCritical = false;
 
-        if (isAbove) dimensionsAbove.push({ name: dim, mean: s.mean });
-        else dimensionsBelow.push({ name: dim, mean: s.mean });
+        // 1. Sobre o Igual a la Media
+        if (meanCourse >= meanSem) {
+            statusText = "Sobre media"; // O "Estándar Alto"
+            rowColor = THEME.COLORS.POSITIVE;
+            dimensionsAbove.push({ name: dim, mean: s.mean });
+        } 
+        // 2. Bajo la Media pero Aceptable (>= 4.0)
+        else if (meanCourse >= CONFIG.THRESHOLDS.CRITICAL) {
+            statusText = "Adecuado";
+            rowColor = THEME.COLORS.NEUTRAL;
+        } 
+        // 3. Crítico (< 4.0)
+        else {
+            statusText = "Requiere Atención";
+            rowColor = THEME.COLORS.NEGATIVE;
+            isCritical = true;
+            dimensionsBelow.push({ name: dim, mean: s.mean });
+        }
 
         const row = table.appendTableRow();
 
@@ -524,7 +585,7 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
             s.mean.toFixed(1),
             semMean.toFixed(1),
             s.agreement + "%",
-            comparison
+            statusText
         ];
 
         cells.forEach((text, index) => {
@@ -538,10 +599,11 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
                 p.setAttributes(THEME.STYLES.TABLE_CELL_CENTER);
             }
 
-            // Aplicar color condicional SOLO a la columna "Estado" (índice 4)
+            // Aplicar color y estilo condicional SOLO a la columna "Estado" (índice 4)
             if (index === 4) {
                 p.setForegroundColor(rowColor);
-                p.setBold(true); // Destacar el estado
+                // Negrita solo si es Positivo o Crítico (Adecuado se deja normal para no saturar)
+                p.setBold(rowColor !== THEME.COLORS.NEUTRAL); 
             } else {
                 p.setForegroundColor(THEME.COLORS.TEXT_MAIN);
                 p.setBold(false);
@@ -593,29 +655,34 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
     body.appendParagraph("\n2. ANÁLISIS COMPARATIVO").setAttributes(THEME.STYLES.H1);
 
     // Fortalezas
-    const pFort = body.appendParagraph("Fortalezas (Sobre media semestral):");
+    // Fortalezas
+    const pFort = body.appendParagraph("Fortalezas (Sobre o igual a media semestral):");
     pFort.setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(THEME.COLORS.POSITIVE);
 
     if (dimensionsAbove.length > 0) {
         dimensionsAbove.forEach(d => body.appendListItem(d.name).setAttributes(THEME.STYLES.NORMAL));
     } else {
-        body.appendParagraph("Ninguna dimensión destaca sobre la media semestral.").setAttributes(THEME.STYLES.NORMAL).setIndentStart(18);
+        body.appendParagraph("Ninguna dimensión destaca significativamente sobre la media semestral.").setAttributes(THEME.STYLES.NORMAL).setIndentStart(18);
     }
 
-    // Mejoras
-    const pMej = body.appendParagraph("\nOportunidades de Mejora (Bajo media semestral):");
-    pMej.setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(THEME.COLORS.NEGATIVE);
-
+    // Mejoras (Solo Críticas)
+    // Nota: Si no hay críticas pero hay "Adecuadas" (bajo media > 3.0), no se listan aquí para no generar ruido negativo innecesario.
+    
     if (dimensionsBelow.length > 0) {
+        const pMej = body.appendParagraph("\nOportunidades de Mejora Urgente (Bajo estándar 4.0):");
+        pMej.setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(THEME.COLORS.NEGATIVE);
         dimensionsBelow.forEach(d => body.appendListItem(d.name).setAttributes(THEME.STYLES.NORMAL));
     } else {
-        body.appendParagraph("Todas las dimensiones están sobre o igual a la media semestral.").setAttributes(THEME.STYLES.NORMAL).setIndentStart(18);
+        // Opcional: Indicar que no hay alertas críticas
+        const pMej = body.appendParagraph("\nOportunidades de Mejora:");
+        pMej.setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(THEME.COLORS.NEUTRAL);
+        body.appendParagraph("No se detectan dimensiones en nivel crítico (< 4.0).").setAttributes(THEME.STYLES.NORMAL).setIndentStart(18);
     }
 
     // --- 5. COMENTARIOS ---
     body.appendParagraph("\n3. COMENTARIOS CUALITATIVOS").setAttributes(THEME.STYLES.H1);
     if (courseData.comments.length > 0) {
-        courseData.comments.slice(0, 5).forEach(c => body.appendListItem(`"${c}"`).setAttributes(THEME.STYLES.NORMAL).setItalic(true));
+        courseData.comments.slice(0, 5).forEach(c => body.appendListItem(`"${c}"`).setAttributes(THEME.STYLES.NORMAL));
         if (courseData.comments.length > 5) {
             body.appendParagraph(`... y ${courseData.comments.length - 5} comentarios más.`).setAttributes(THEME.STYLES.NORMAL);
         }
@@ -626,18 +693,38 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
     // --- 6. APRECIACIÓN GENERAL ---
     body.appendParagraph("\n4. APRECIACIÓN GENERAL").setAttributes(THEME.STYLES.H1);
 
-    const percentAbove = (dimensionsAbove.length / CONFIG.TEACHING_DIMENSIONS_COUNT) * 100;
+    // Calcular porcentajes
+    const totalDimensions = CONFIG.TEACHING_DIMENSIONS_COUNT;
+    const countCritical = dimensionsBelow.length; // Las que están < 4.0
+    const countAbove = dimensionsAbove.length;    // Las que están >= Media
+    const countAdequate = totalDimensions - countCritical - countAbove; // Las que están entre 4.0 y Media
+
+    const percentCritical = (countCritical / totalDimensions) * 100;
+    const percentExcellent = (countAbove / totalDimensions) * 100;
+
     let appreciation = "";
 
-    if (percentAbove >= 80) appreciation = "El desempeño docente es EXCELENTE, situándose significativamente por encima del promedio semestral en la gran mayoría de las dimensiones.";
-    else if (percentAbove >= 60) appreciation = "El desempeño docente es BUENO, superando el promedio semestral en la mayoría de las áreas evaluadas.";
-    else if (percentAbove >= 40) appreciation = "El desempeño docente es REGULAR, con resultados mixtos comparados con el promedio semestral.";
-    else appreciation = "El desempeño docente requiere ATENCIÓN, situándose por debajo del promedio semestral en varias dimensiones clave.";
+    // Lógica basada en Prioridad: 1. Criticidad -> 2. Excelencia
+    if (countCritical === 0) {
+        if (percentExcellent >= 70) {
+            appreciation = "El desempeño docente es EXCELENTE, situándose por encima del promedio semestral en la gran mayoría de las dimensiones.";
+        } else if (percentExcellent >= 40) {
+            appreciation = "El desempeño docente es MUY BUENO, combinando dimensiones destacadas con un cumplimiento estancial sólido en todas las áreas.";
+        } else {
+            appreciation = "El desempeño docente es ADECUADO, cumpliendo satisfactoriamente con los estándares institucionales (sobre 4.0) en la totalidad de las dimensiones evaluadas.";
+        }
+    } else {
+        if (percentCritical <= 25) {
+            appreciation = "El desempeño docente es BUENO en términos generales, aunque presenta oportunidades de mejora específicas (bajo 4.0) que requieren atención focalizada.";
+        } else {
+            appreciation = "El desempeño docente requiere ATENCIÓN, presentando múltiples dimensiones por debajo del estándar mínimo esperado (4.0). Se sugiere revisar las oportunidades de mejora detectadas.";
+        }
+    }
 
     const appTable = body.appendTable([[appreciation]]);
     const appCell = appTable.getCell(0, 0);
     appCell.setBackgroundColor(THEME.COLORS.BG_HEADER).setPaddingTop(10).setPaddingBottom(10).setPaddingLeft(10).setPaddingRight(10);
-    appCell.getChild(0).asParagraph().setAttributes(THEME.STYLES.NORMAL).setItalic(true).setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY);
+    appCell.getChild(0).asParagraph().setAttributes(THEME.STYLES.NORMAL).setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY);
 
     // --- 7. FIRMA ---
     body.appendParagraph("\n\n\n").setAttributes(THEME.STYLES.NORMAL);
@@ -646,6 +733,35 @@ function createReportDoc(courseData, semesterStats, folder, logoBlob) {
     signature.setAttributes(THEME.STYLES.NORMAL);
 
     doc.saveAndClose();
+    return docId; // Retornar ID para el registro
+}
+
+/**
+ * Registra el reporte generado en la hoja "Registro_Reportes".
+ */
+function logReportGenerated(professor, course, docId, folderUrl) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("Registro_Reportes");
+
+    // Crear hoja si no existe (Manejo de concurrencia simple)
+    if (!sheet) {
+        try {
+            sheet = ss.insertSheet("Registro_Reportes");
+            sheet.appendRow(["Timestamp", "Profesor", "Curso", "ID Archivo", "URL Archivo", "Estado Envío", "Mensaje Log"]);
+            sheet.setFrozenRows(1);
+            sheet.getRange(1, 1, 1, 7).setFontWeight("bold").setBackground("#ece5e0");
+        } catch (e) {
+            // Si falla insertSheet, probablemente ya existe (race condition rara o error de nombre)
+            sheet = ss.getSheetByName("Registro_Reportes");
+        }
+    }
+
+    if (sheet) {
+        const fileUrl = `https://docs.google.com/document/d/${docId}/edit`;
+        sheet.appendRow([new Date(), professor, course, docId, fileUrl, "PENDIENTE", ""]);
+    } else {
+        console.error("No se pudo acceder a la hoja Registro_Reportes");
+    }
 }
 
 /**

@@ -452,6 +452,7 @@ function setupEnvironment() {
  */
 function processData(rows) {
     const responses = rows.slice(1); // Ignorar encabezados
+    /** @type {Object<string, CourseData>} */
     const groupedData = {};
 
     // Conservar solo la última fila por par correo|curso
@@ -553,6 +554,7 @@ function calculateSemesterStats(groupedData) {
     });
 
     // Calcular medias
+    /** @type {Record<string, number>} */
     const semesterMeans = {};
     let totalSum = 0;
     let totalCount = 0;
@@ -588,6 +590,7 @@ function calculateSemesterStats(groupedData) {
  * @returns {CourseStats}
  */
 function calculateCourseStats(courseData) {
+    /** @type {Record<number, DimensionStats>} */
     const dimensionStats = {};
     const allMeans = [];
 

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "lib": [
+      "ES2019"
+    ],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "moduleDetection": "legacy",
+    "skipLibCheck": true,
+    "types": [
+      "google-apps-script"
+    ]
+  },
+  "include": [
+    "Code.js",
+    "Emails.js",
+    "Stats.js",
+    "types/*.d.ts"
+  ]
+}

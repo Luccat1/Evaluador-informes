@@ -17,7 +17,7 @@
  * 3. Usar el menú "Evaluación Docente" > "Generar Reportes".
  * 
  * @author Luciano Cataldo (Refactorizado por Asistente IA)
- * @version 2.0.0 - Modular & Themed
+ * @version 3.1.0 - Ver CHANGELOG.md
  */
 
 /* ==========================================================================
@@ -242,7 +242,7 @@ const THEME = {
 
 /**
  * Crea el menú al abrir la hoja. Solo se ejecuta si este código está pegado directo en la hoja;
- * si la hoja usa el stub (stub/Code.gs) con esto como librería, el menú lo crea el stub.
+ * si la hoja usa el stub (stub/Code.js) con esto como librería, el menú lo crea el stub.
  */
 function onOpen() {
     SpreadsheetApp.getUi()
@@ -446,6 +446,10 @@ function setupEnvironment() {
  * Convierte filas crudas en objetos estructurados agrupados por curso.
  * Maneja la lógica bilingüe.
  */
+/**
+ * @param {any[][]} rows Filas de la hoja de respuestas (la primera es el encabezado).
+ * @returns {Object<string, CourseData>} Datos por clave "profesor|curso".
+ */
 function processData(rows) {
     const responses = rows.slice(1); // Ignorar encabezados
     const groupedData = {};
@@ -528,6 +532,10 @@ function processData(rows) {
  * Calcula estadísticas globales (semestrales) para comparación.
  * NOTA: Solo considera dimensiones de DOCENCIA para el promedio global.
  */
+/**
+ * @param {Object<string, CourseData>} groupedData
+ * @returns {SemesterStats}
+ */
 function calculateSemesterStats(groupedData) {
     const allDimensionValues = {};
 
@@ -575,6 +583,10 @@ function calculateSemesterStats(groupedData) {
 /**
  * Calcula estadísticas detalladas para un curso específico.
  */
+/**
+ * @param {CourseData} courseData
+ * @returns {CourseStats}
+ */
 function calculateCourseStats(courseData) {
     const dimensionStats = {};
     const allMeans = [];
@@ -620,6 +632,13 @@ function calculateCourseStats(courseData) {
  */
 const TABLE_WIDTHS = [175, 40, 40, 38, 40, 80, 74]; // suma 487 pt (carta con márgenes de 54 pt)
 
+/**
+ * @param {CourseData} courseData
+ * @param {SemesterStats} semesterStats
+ * @param {GoogleAppsScript.Drive.Folder} folder
+ * @param {GoogleAppsScript.Base.Blob | null} logoBlob
+ * @returns {string} ID del Google Doc creado.
+ */
 function createReportDoc(courseData, semesterStats, folder, logoBlob) {
     const doc = DocumentApp.create(`Informe - ${courseData.professor} - ${courseData.course}`);
     const docId = doc.getId();
@@ -860,6 +879,11 @@ function logReportGenerated(professor, course, docId, folderUrl) {
 /**
  * Una fila por curso/profesor con las métricas para decidir dónde enfocarse, ordenadas por prioridad.
  * Función pura (sin servicios de Google): se prueba con `node test/run.js`.
+ */
+/**
+ * @param {Object<string, CourseData>} processedData
+ * @param {SemesterStats} semesterStats
+ * @returns {SummaryRow[]}
  */
 function buildSummaryRows(processedData, semesterStats) {
     const rows = Object.keys(processedData).map(key => {

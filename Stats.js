@@ -24,6 +24,12 @@ function diffRounded(mean, semMean) {
  * Nivel de una dimensión: ATTENTION (< umbral crítico, solo docencia), ABOVE, EQUAL o BELOW
  * según la diferencia con la media semestral (banda ±CONFIG.THRESHOLDS.BAND).
  */
+/**
+ * @param {number} mean
+ * @param {number} semMean
+ * @param {boolean=} isSelf Autoevaluación: no tiene umbral de atención.
+ * @returns {Level}
+ */
 function classifyDimension(mean, semMean, isSelf) {
     const T = CONFIG.THRESHOLDS;
     if (!isSelf && Math.round(mean * 10) / 10 < T.CRITICAL) return 'ATTENTION';
@@ -136,6 +142,11 @@ function isNotApplicable(course, dimIndex) {
  * Respuestas hasta CONFIG.PERIOD_SPLIT_MONTH (septiembre) = 1er semestre; después, 2º.
  * Devuelve null si no puede determinarlo.
  */
+/**
+ * @param {string} name Nombre del archivo.
+ * @param {any[]} dates Fechas de respuesta (se ignoran los valores que no sean Date).
+ * @returns {string | null}
+ */
 function detectPeriod(name, dates) {
     const n = (name || '').toLowerCase();
     let year = (n.match(/\b(20\d{2})\b/) || [])[1];
@@ -146,7 +157,7 @@ function detectPeriod(name, dates) {
     if (!sem || !year) {
         const tally = {};
         (dates || []).forEach(d => {
-            if (!(d instanceof Date) || isNaN(d)) return;
+            if (!(d instanceof Date) || isNaN(d.getTime())) return;
             const k = d.getFullYear() + '|' + (d.getMonth() + 1 <= CONFIG.PERIOD_SPLIT_MONTH ? 1 : 2);
             tally[k] = (tally[k] || 0) + 1;
         });
@@ -164,6 +175,10 @@ function detectPeriod(name, dates) {
  * Separa "Curso — Profesor" por el ÚLTIMO separador: raya larga, raya media o guion con espacios.
  * (Un guion pegado, como en "Cross-Cultural", no cuenta.) Devuelve null si no hay separador.
  */
+/**
+ * @param {any} text
+ * @returns {{course: string, professor: string} | null}
+ */
 function splitCourseProfessor(text) {
     const t = (text || '').toString().trim();
     // Rayas (U+2012-2015) con o sin espacios; cualquier otro guion o signo menos (U+2010-2015, U+2212) solo si lleva espacios
@@ -180,6 +195,11 @@ function splitCourseProfessor(text) {
  * Prioridad de atención de un curso/profesor para el resumen comparativo.
  * Alta: varias dimensiones bajo el umbral crítico, o muy por debajo del semestre.
  * Media: una dimensión bajo el umbral, o bajo la media semestral por la banda.
+ */
+/**
+ * @param {number} attention Dimensiones bajo el umbral crítico.
+ * @param {number} diff Media docente menos media del semestre.
+ * @returns {'Alta' | 'Media' | 'Baja'}
  */
 function priorityOf(attention, diff) {
     const T = CONFIG.THRESHOLDS;

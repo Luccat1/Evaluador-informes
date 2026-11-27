@@ -1,0 +1,4 @@
+# Saltos de línea consistentes entre Windows y Linux
+* text=auto eol=lf
+*.png binary
+*.pdf binary

@@ -1,0 +1,19 @@
+{
+  "name": "evaluador-informes",
+  "version": "3.1.0",
+  "private": true,
+  "description": "Informes de evaluación docente (CELE PUCV) con Google Apps Script",
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p stub",
+    "test": "node test/run.js",
+    "check": "npm run typecheck && npm test",
+    "push": "clasp push -f"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/google-apps-script": "^2.0.18",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,9 +1,9 @@
-// Prueba la lógica pura (Stats.gs) y el procesamiento de filas, sin servicios de Google.
+// Prueba la lógica pura (Stats.js) y el procesamiento de filas, sin servicios de Google.
 // Uso: node test/run.js
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const stub = new Proxy({}, { get: (_, k) => k });
 const ctx = vm.createContext({ assert, DocumentApp: { Attribute: stub, HorizontalAlignment: stub }, console });
-const src = ['Code.gs', 'Stats.gs'].map(f => fs.readFileSync(__dirname + '/../' + f, 'utf8')).join('\n');
+const src = ['Code.js', 'Stats.js'].map(f => fs.readFileSync(__dirname + '/../' + f, 'utf8')).join('\n');
 
 vm.runInContext(src + `
   assert.strictEqual(CONFIG.BLOCKS.reduce((a, b) => a + b.count, 0), CONFIG.NUM_QUESTIONS);

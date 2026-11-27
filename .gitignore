@@ -1,0 +1,8 @@
+node_modules/
+# Credenciales locales de clasp: nunca se suben
+.clasprc.json
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db

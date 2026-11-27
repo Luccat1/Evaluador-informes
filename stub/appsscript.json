@@ -1,0 +1,25 @@
+{
+  "timeZone": "America/Santiago",
+  "dependencies": {
+    "libraries": [
+      {
+        "userSymbol": "EvaluadorLib",
+        "libraryId": "1S2ozOa_wGtc8GPRW08p-Jova55BEA_xIll22Vx9M3b2toGAbhvasWDK3",
+        "version": "0",
+        "developmentMode": true
+      }
+    ]
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.settings.basic",
+    "https://www.googleapis.com/auth/script.container.ui",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.scriptapp"
+  ]
+}

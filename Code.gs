@@ -27,18 +27,17 @@ const CONFIG = {
     // --- Mapeo de Columnas (Indices comienzan en 0) ---
     COL_TIMESTAMP: 0,
     COL_EMAIL: 1,
-    COL_COURSE: 2,    // "Seleccione su curso..."
-    COL_PROFESSOR: 3, // "Seleccione su profesor..."
-    COL_LANG: 4,      // "¿Deseas responder en español o en inglés?..."
+    COL_COURSE_PROFESSOR: 2, // "Curso — Profesor" en una sola celda
+    COL_LANG: 3,      // "¿Deseas responder en español o en inglés?..."
 
     // --- Configuración de Preguntas (Español) ---
     // Ajustar si cambian las columnas en el formulario
-    COL_START_SPANISH: 5,    // Primera pregunta de escala
-    COL_COMMENT_SPANISH: 24, // Pregunta abierta de comentarios
+    COL_START_SPANISH: 4,    // Primera pregunta de escala
+    COL_COMMENT_SPANISH: 23, // Comentarios al profesor; +1 = comentarios sobre la asignatura
 
     // --- Configuración de Preguntas (Inglés) ---
-    COL_START_ENGLISH: 27,
-    COL_COMMENT_ENGLISH: 46,
+    COL_START_ENGLISH: 26,
+    COL_COMMENT_ENGLISH: 45,
 
     // --- Parámetros del Formulario ---
     NUM_QUESTIONS: 19, // Total de preguntas de escala (Docencia + Autoevaluación)
@@ -72,10 +71,35 @@ const CONFIG = {
         "Preparación adecuada para evaluaciones"
     ],
 
-    // --- Referencias Estadísticas ---
-    SEMESTER_MEANS: {
-        DEFAULT: 3.4 // Valor por defecto si no hay suficientes datos para calcular la real
+    // Preguntas que no aplican a ciertos cursos: { índice de la dimensión: [nombres exactos de curso] }.
+    // 14 = "Uso del español durante toda la clase" (no aplica en cursos dictados en inglés).
+    NOT_APPLICABLE: {
+        14: [
+            "Human Rights in Latin America",
+            "Resistance, Appropriation and Sustainability: Cross-Cultural Encounters with the Native Mapuche People",
+            "Political and Social Change in Chile and Latin America",
+            "Contemporary Latin American films",
+            "Global Entrepreneurship"
+        ]
     },
+
+    // Período que aparece en informes y asunto de correos
+    SHEET_SUMMARY: "Resumen_Comparativo",
+
+    // Vacío = se detecta solo (nombre del archivo o fechas de respuesta). Escribir un texto lo fuerza.
+    PERIOD_LABEL: "",
+    PERIOD_SPLIT_MONTH: 9, // respuestas hasta este mes = 1er semestre; después, 2º
+
+    // Bloques del formulario (en orden); la suma debe ser NUM_QUESTIONS
+    BLOCKS: [
+        { title: "Enseñanza-aprendizaje", count: 5 },
+        { title: "Evaluación-aprendizaje", count: 3 },
+        { title: "Estilo de enseñanza-aprendizaje", count: 3 },
+        { title: "Aspectos formales del profesor/a", count: 4 },
+        { title: "Desempeño del estudiante (autoevaluación)", count: 4 }
+    ],
+
+    SIGNATURE: "Coordinación Académica\nCentro de Español Lengua Extranjera (CELE)\nDirección General de Asuntos Internacionales\nPontificia Universidad Católica de Valparaíso",
 
     // --- Configuración de Archivos ---
     FILES: {
@@ -85,7 +109,11 @@ const CONFIG = {
 
     // --- Umbrales de Evaluación ---
     THRESHOLDS: {
-        CRITICAL: 4.0 // Nota mínima aceptable (la escala es 1-5, bajo 4.0 es alerta)
+        CRITICAL: 4.0,       // Nota mínima aceptable (la escala es 1-5, bajo 4.0 es alerta)
+        BAND: 0.2,           // Diferencia con la media semestral para decir "sobre" o "bajo" (±)
+        MIN_RESPONSES: 5,    // Bajo este n, los resultados se marcan como solo indicativos
+        ATTENTION_HIGH: 2,   // Resumen comparativo: prioridad Alta si hay tantas dimensiones bajo CRITICAL...
+        DIFF_HIGH: 0.3       // ...o si la media docente está tantos puntos bajo la del semestre
     }
 };
 
@@ -105,15 +133,25 @@ const THEME = {
         TEXT_MAIN: "#333333",  // Texto Principal
         TEXT_LIGHT: "#555555", // Texto Secundario
         BG_HEADER: "#ece5e0",  // Beige (Fondos de tabla)
-        BG_HEADER: "#ece5e0",  // Beige (Fondos de tabla)
+        TINT: "#a3d1e3",       // Celeste (fondo "sobre la media")
+        WARN: "#f4ce46",       // Amarillo (fondo "bajo la media")
+        GRILLA: ["#24588d", "#1d71b8", "#008cba", "#36a9e1", "#30b6be", "#f4ce46", "#ee7269", "#e73a34", "#9366a9"],
         POSITIVE: "#008cba",   // Azul (Fortalezas / Sobre Media)
         NEUTRAL: "#333333",    // Gris Oscuro (Adecuado / Estándar)
         NEGATIVE: "#e73a34"    // Rojo (Alerta / Bajo Estándar)
     },
 
+    // --- Niveles de desempeño (chip de la columna "Nivel") ---
+    LEVELS: {
+        ABOVE:     { label: "Sobre la media",    bg: "#a3d1e3", fg: "#24588d" },
+        EQUAL:     { label: "En la media",       bg: "#ece5e0", fg: "#333333" },
+        BELOW:     { label: "Bajo la media",     bg: "#f4ce46", fg: "#333333" },
+        ATTENTION: { label: "Requiere atención", bg: "#e73a34", fg: "#ffffff" }
+    },
+
     // --- Tipografía ---
     FONTS: {
-        MAIN: "Arial"
+        MAIN: "Roboto"
     },
 
     // --- Definición de Estilos para DocumentApp ---
@@ -150,7 +188,6 @@ const THEME = {
     T.STYLES.H1[A.FOREGROUND_COLOR] = T.COLORS.PRIMARY;
     T.STYLES.H1[A.SPACING_BEFORE] = 14;
     T.STYLES.H1[A.SPACING_AFTER] = 6;
-    T.STYLES.H1[A.SPACING_AFTER] = 6;
     T.STYLES.H1[A.FONT_FAMILY] = T.FONTS.MAIN;
     T.STYLES.H1[A.ITALIC] = false; // Asegurar no cursiva
 
@@ -166,7 +203,6 @@ const THEME = {
     T.STYLES.NORMAL[A.FONT_SIZE] = 10;
     T.STYLES.NORMAL[A.FONT_FAMILY] = T.FONTS.MAIN;
     T.STYLES.NORMAL[A.FOREGROUND_COLOR] = T.COLORS.TEXT_MAIN;
-    T.STYLES.NORMAL[A.LINE_SPACING] = 1.15;
     T.STYLES.NORMAL[A.LINE_SPACING] = 1.15;
     T.STYLES.NORMAL[A.BOLD] = false; // Forzar no-negrita
     T.STYLES.NORMAL[A.ITALIC] = false; // Forzar no-cursiva (Fix crítico)
@@ -205,12 +241,15 @@ const THEME = {
    ========================================================================== */
 
 /**
- * Crea el menú en la hoja de cálculo al abrir el documento.
+ * Crea el menú al abrir la hoja. Solo se ejecuta si este código está pegado directo en la hoja;
+ * si la hoja usa el stub (stub/Code.gs) con esto como librería, el menú lo crea el stub.
  */
 function onOpen() {
     SpreadsheetApp.getUi()
         .createMenu('Evaluación Docente')
         .addItem('📊 Generar Reportes', 'generateReports')
+        .addItem('📈 Resumen Comparativo', 'generateComparativeSummary')
+        .addItem('📄 Exportar Informes a PDF', 'exportReportsToPdf')
         .addSeparator()
         .addItem('📧 Enviar Correos Masivos', 'launchEmailSender')
         .addItem('📋 Crear Plantilla Directorio', 'createDirectoryTemplate')
@@ -219,10 +258,6 @@ function onOpen() {
         .addToUi();
 }
 
-/**
- * Función orquestadora principal.
- * 1. Lee datos. 2. Prepara carpetas/recursos. 3. Procesa estadísticas. 4. Genera Docs.
- */
 /**
  * Función orquestadora principal.
  * 1. Lee datos. 2. Prepara carpetas/recursos. 3. Procesa estadísticas. 4. Genera Docs.
@@ -237,8 +272,11 @@ function generateReports() {
         }
     } catch (e) {
         console.error("Error Lock generación:", e);
-        return; 
+        return;
     }
+
+    const TIME_LIMIT_MS = 4.5 * 60 * 1000; // Margen seguro antes del límite de 6 min de Apps Script
+    const startTime = Date.now();
 
     try {
         const ui = SpreadsheetApp.getUi();
@@ -250,41 +288,70 @@ function generateReports() {
             return;
         }
 
-        // 1. Preparar Entorno (Carpetas y Logo)
+        // 1. Procesar Datos y verificar cuáles faltan por generar
+        const processedData = processData(data);
+        if (Object.keys(processedData).length === 0) {
+            const sample = data[1][CONFIG.COL_COURSE_PROFESSOR];
+            const odd = Array.from(String(sample)).filter(c => !/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s.,:;()\/]/.test(c)).map(c => 'U+' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'));
+            ui.alert(`⚠️ No se encontró ninguna respuesta válida en la hoja "${sheet.getName()}".\n\n` +
+                `Se espera "Curso — Profesor" en la columna ${String.fromCharCode(65 + CONFIG.COL_COURSE_PROFESSOR)}. En la primera respuesta hay:\n"${sample}"\nCaracteres especiales: ${odd.join(" ") || "ninguno"}\n\n` +
+                `Revisa que estés en la hoja de respuestas y que esa columna sea la del curso y profesor.`);
+            return;
+        }
+        const existingKeys = getExistingReportKeys_();
+        const pendingKeys = Object.keys(processedData).filter(k => !existingKeys.has(k));
+
+        if (pendingKeys.length === 0) {
+            ui.alert(`ℹ️ Los ${Object.keys(processedData).length} cursos de esta hoja ya tienen un informe registrado en "Registro_Reportes".\n\nSi es una hoja nueva y esa pestaña vino copiada de otra, bórrala (o sus filas) y vuelve a ejecutar.`);
+            return;
+        }
+
+        // 2. Preparar Entorno (Carpetas y Logo)
         const env = setupEnvironment();
         if (!env) return; // Error crítico en setup
-
-        // 2. Procesar Datos
-        const processedData = processData(data);
 
         // 3. Calcular Estadísticas Globales (Semestre)
         const semesterStats = calculateSemesterStats(processedData);
 
         // 4. Generar Reportes Individuales
         let count = 0;
-        let errors = [];
+        let remaining = 0;
+        const errors = [];
 
-        for (const key in processedData) {
+        for (let i = 0; i < pendingKeys.length; i++) {
+            if (Date.now() - startTime > TIME_LIMIT_MS) {
+                remaining = pendingKeys.length - i;
+                break;
+            }
+
+            const key = pendingKeys[i];
+            let docId = null;
             try {
                 const courseData = processedData[key];
-                const docId = createReportDoc(courseData, semesterStats, env.folder, env.logoBlob);
-                
-                // Registrar en Hoja de Control (Protegido)
-                try {
-                    logReportGenerated(courseData.professor, courseData.course, docId, env.folder.getUrl());
-                } catch (e) {
-                    console.warn(`Error registrando reporte de ${courseData.professor}: ${e.message}`);
-                }
-                
+                docId = createReportDoc(courseData, semesterStats, env.folder, env.logoBlob);
+                logReportGenerated(courseData.professor, courseData.course, docId, env.folder.getUrl());
                 count++;
             } catch (e) {
-                console.error(`Error generando reporte para ${key}: ${e.message}`);
+                if (docId) {
+                    try {
+                        DriveApp.getFileById(docId).setTrashed(true);
+                    } catch (trashErr) {
+                        console.warn(`No se pudo enviar a papelera el Doc ${docId}: ${trashErr.message}`);
+                    }
+                }
+                console.error(`Error generando reporte para ${key}: ${e.message}\n${e.stack}`);
                 errors.push(`${key}: ${e.message}`);
             }
         }
 
+        const resumeMsg = remaining > 0
+            ? `\n\n⏱️ Límite de tiempo cercano: quedaron ${remaining} reportes pendientes. Vuelve a ejecutar "Generar Reportes" para continuar.`
+            : '';
+
         if (errors.length > 0) {
-            ui.alert(`⚠️ Proceso completado con alertas.\n\nSe generaron ${count} reportes.\nHubo ${errors.length} errores:\n${errors.slice(0, 5).join('\n')}`);
+            ui.alert(`⚠️ Proceso completado con alertas.\n\nSe generaron ${count} reportes.\nHubo ${errors.length} errores:\n${errors.join('\n')}${resumeMsg}`);
+        } else if (remaining > 0) {
+            ui.alert(`⏸️ Pausa por tiempo.\n\nSe generaron ${count} reportes en la carpeta:\n"${env.folder.getName()}"${resumeMsg}`);
         } else {
             ui.alert(`✅ Proceso completado con éxito.\n\nSe generaron ${count} reportes en la carpeta:\n"${env.folder.getName()}"`);
         }
@@ -294,6 +361,41 @@ function generateReports() {
     } finally {
         lock.releaseLock();
     }
+}
+
+/**
+ * Obtiene las claves "profesor|curso" ya registradas en Registro_Reportes para evitar duplicados.
+ */
+function getExistingReportKeys_() {
+    const keys = new Set();
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Registro_Reportes");
+    if (!sheet) return keys;
+    const rows = sheet.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+        const prof = (rows[i][1] || '').toString().trim();
+        const course = (rows[i][2] || '').toString().trim();
+        if (prof && course) keys.add(`${prof}|${course}`);
+    }
+    return keys;
+}
+
+/** Primera pestaña con datos que no sea una hoja generada por el script (registro, directorio, resumen). */
+function getResponsesSheet_() {
+    const skip = [EMAIL_CONFIG.SHEET_LOG, EMAIL_CONFIG.SHEET_DIR, CONFIG.SHEET_SUMMARY];
+    return SpreadsheetApp.getActiveSpreadsheet().getSheets().find(sh => !skip.includes(sh.getName()) && sh.getLastRow() > 1) || null;
+}
+
+let PERIOD_CACHE_ = null;
+
+/** Período de la evaluación: CONFIG.PERIOD_LABEL si está escrito; si no, se detecta de la hoja de respuestas. */
+function getPeriodLabel_() {
+    if (CONFIG.PERIOD_LABEL) return CONFIG.PERIOD_LABEL;
+    if (PERIOD_CACHE_) return PERIOD_CACHE_;
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getResponsesSheet_();
+    const dates = sheet ? sheet.getRange(2, CONFIG.COL_TIMESTAMP + 1, sheet.getLastRow() - 1, 1).getValues().map(r => r[0]) : [];
+    PERIOD_CACHE_ = detectPeriod(ss.getName(), dates) || "Semestre sin determinar (definir CONFIG.PERIOD_LABEL)";
+    return PERIOD_CACHE_;
 }
 
 /**
@@ -308,9 +410,10 @@ function setupEnvironment() {
     const parents = ssFile.getParents();
     const parentFolder = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
 
-    // Crear carpeta de reportes
+    // Reutilizar o crear carpeta de reportes del día
     const folderName = `Reportes Evaluación Docente ${new Date().toLocaleDateString()}`;
-    const folder = parentFolder.createFolder(folderName);
+    const existingFolders = parentFolder.getFoldersByName(folderName);
+    const folder = existingFolders.hasNext() ? existingFolders.next() : parentFolder.createFolder(folderName);
 
     // Obtener Logo (Local -> Descarga -> Fallback)
     let logoBlob = null;
@@ -347,12 +450,25 @@ function processData(rows) {
     const responses = rows.slice(1); // Ignorar encabezados
     const groupedData = {};
 
-    responses.forEach(row => {
-        const professor = row[CONFIG.COL_PROFESSOR];
-        const course = row[CONFIG.COL_COURSE];
+    // Conservar solo la última fila por par correo|curso
+    const lastIdxByEmailCourse = {};
+    responses.forEach((row, idx) => {
+        const email = (row[CONFIG.COL_EMAIL] || '').toString().trim().toLowerCase();
+        const parts = splitCourseProfessor(row[CONFIG.COL_COURSE_PROFESSOR]);
+        if (email && parts) lastIdxByEmailCourse[`${email}|${parts.course}`] = idx;
+    });
+
+    responses.forEach((row, idx) => {
+        const cp = (row[CONFIG.COL_COURSE_PROFESSOR] || '').toString();
+        const parts = splitCourseProfessor(cp);
+        if (!parts) return;
+        const { course, professor } = parts;
         const lang = row[CONFIG.COL_LANG];
 
         if (!professor || !course) return; // Saltar filas vacías
+
+        const email = (row[CONFIG.COL_EMAIL] || '').toString().trim().toLowerCase();
+        if (email && lastIdxByEmailCourse[`${email}|${course}`] !== idx) return;
 
         const key = `${professor}|${course}`;
 
@@ -361,7 +477,9 @@ function processData(rows) {
                 professor: professor,
                 course: course,
                 responses: [],
-                comments: []
+                comments: [],
+                commentsCourse: [],
+                langs: { es: 0, en: 0 }
             };
         }
 
@@ -382,7 +500,7 @@ function processData(rows) {
         const evaluationValues = [];
         let hasData = false;
         for (let i = 0; i < CONFIG.NUM_QUESTIONS; i++) {
-            const val = row[startCol + i];
+            const val = isNotApplicable(course, i) ? null : row[startCol + i];
             const numVal = (typeof val === 'number') ? val : parseFloat(val);
 
             if (!isNaN(numVal)) {
@@ -395,13 +513,12 @@ function processData(rows) {
 
         if (hasData) {
             groupedData[key].responses.push(evaluationValues);
+            groupedData[key].langs[isEnglish ? 'en' : 'es']++;
         }
 
         // Extracción de Comentarios
-        const comment = row[commentCol];
-        if (comment && comment.toString().trim().length > 2) {
-            groupedData[key].comments.push(comment.toString().trim());
-        }
+        if (isMeaningfulComment(row[commentCol])) groupedData[key].comments.push(row[commentCol].toString().trim());
+        if (isMeaningfulComment(row[commentCol + 1])) groupedData[key].commentsCourse.push(row[commentCol + 1].toString().trim());
     });
 
     return groupedData;
@@ -444,13 +561,14 @@ function calculateSemesterStats(groupedData) {
                 totalCount += values.length;
             }
         } else {
-            semesterMeans[CONFIG.DIMENSIONS[index]] = CONFIG.SEMESTER_MEANS.DEFAULT;
+            semesterMeans[CONFIG.DIMENSIONS[index]] = null;
         }
     });
 
     return {
+        n: Object.values(groupedData).reduce((a, c) => a + c.responses.length, 0),
         meansByDimension: semesterMeans,
-        globalMean: totalCount > 0 ? totalSum / totalCount : CONFIG.SEMESTER_MEANS.DEFAULT
+        globalMean: totalCount > 0 ? totalSum / totalCount : null
     };
 }
 
@@ -460,7 +578,6 @@ function calculateSemesterStats(groupedData) {
 function calculateCourseStats(courseData) {
     const dimensionStats = {};
     const allMeans = [];
-    const allStds = [];
 
     for (let i = 0; i < CONFIG.DIMENSIONS.length; i++) {
         const values = [];
@@ -469,36 +586,26 @@ function calculateCourseStats(courseData) {
         });
 
         if (values.length === 0) {
-            dimensionStats[i] = { mean: 0, median: 0, std: 0, agreement: 0, n: 0 };
+            dimensionStats[i] = { mean: 0, agreement: 0, n: 0, dist: [0, 0, 0, 0, 0] };
             continue;
         }
 
-        // Cálculos Estadísticos
         const sum = values.reduce((a, b) => a + b, 0);
         const mean = sum / values.length;
-
-        const squareDiffs = values.map(v => Math.pow(v - mean, 2));
-        const std = Math.sqrt(squareDiffs.reduce((a, b) => a + b, 0) / values.length);
-
-        values.sort((a, b) => a - b);
-        const mid = Math.floor(values.length / 2);
-        const median = values.length % 2 !== 0 ? values[mid] : (values[mid - 1] + values[mid]) / 2;
-
+        const dist = distribution(values);
         const agreement = Math.round((values.filter(v => v >= 4).length / values.length) * 100);
 
-        dimensionStats[i] = { mean, median, std, agreement, n: values.length };
+        dimensionStats[i] = { mean, agreement, n: values.length, dist };
 
         // Acumular para media general (Solo Docencia)
         if (i < CONFIG.TEACHING_DIMENSIONS_COUNT) {
             allMeans.push(mean);
-            allStds.push(std);
         }
     }
 
     const generalMean = allMeans.length > 0 ? allMeans.reduce((a, b) => a + b, 0) / allMeans.length : 0;
-    const generalStd = allStds.length > 0 ? allStds.reduce((a, b) => a + b, 0) / allStds.length : 0;
 
-    return { dimensions: dimensionStats, generalMean, generalStd };
+    return { dimensions: dimensionStats, generalMean };
 }
 
 
@@ -508,255 +615,218 @@ function calculateCourseStats(courseData) {
 
 /**
  * Genera el documento Google Doc final aplicando el tema y estructura.
+ * Secciones: resumen · resultados por bloque · análisis · retroalimentación cualitativa ·
+ * nota metodológica.
  */
+const TABLE_WIDTHS = [175, 40, 40, 38, 40, 80, 74]; // suma 487 pt (carta con márgenes de 54 pt)
+
 function createReportDoc(courseData, semesterStats, folder, logoBlob) {
-    const docName = `Informe - ${courseData.professor} - ${courseData.course}`;
-    const doc = DocumentApp.create(docName);
-    const docId = doc.getId(); // Guardar ID
-    const body = doc.getBody();
+    const doc = DocumentApp.create(`Informe - ${courseData.professor} - ${courseData.course}`);
+    const docId = doc.getId();
+    try {
+        const body = doc.getBody();
+        DriveApp.getFileById(docId).moveTo(folder);
 
-    // Mover a carpeta
-    DriveApp.getFileById(doc.getId()).moveTo(folder);
+    const C = THEME.COLORS, S = THEME.STYLES;
+    const n = courseData.responses.length;
+    const stats = calculateCourseStats(courseData);
+    body.setMarginLeft(54).setMarginRight(54).setMarginTop(54).setMarginBottom(54);
 
-    // --- 1. ENCABEZADO ---
+    // --- Encabezado y pie ---
     const header = doc.addHeader();
     if (logoBlob) {
         const img = header.appendImage(logoBlob);
-        // Ajuste de tamaño proporcional (ancho base 350px para que no sea muy grande)
-        const newWidth = 350;
-        const newHeight = (img.getHeight() * newWidth) / img.getWidth();
-        img.setWidth(newWidth).setHeight(newHeight);
-        
-        // Corrección de centrado: Alinear el párrafo contenedor de la imagen
+        const w = 240;
+        const h = (img.getHeight() * w) / img.getWidth(); // calcular ANTES de cambiar el ancho
+        img.setWidth(w).setHeight(h);
         img.getParent().asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER);
     }
+    header.appendParagraph("PONTIFICIA UNIVERSIDAD CATÓLICA DE VALPARAÍSO\nDIRECCIÓN GENERAL DE ASUNTOS INTERNACIONALES\nCENTRO DE ESPAÑOL LENGUA EXTRANJERA")
+        .setAttributes(S.NORMAL).setFontSize(8).setAlignment(DocumentApp.HorizontalAlignment.CENTER).setBold(true).setForegroundColor(C.PRIMARY);
 
-    // Texto Institucional (Siempre visible)
-    const pInst = header.appendParagraph("PONTIFICIA UNIVERSIDAD CATÓLICA DE VALPARAÍSO\nDIRECCIÓN GENERAL DE ASUNTOS INTERNACIONALES\nCENTRO DE ESPAÑOL LENGUA EXTRANJERA");
-    pInst.setAttributes(THEME.STYLES.NORMAL);
-    pInst.setAlignment(DocumentApp.HorizontalAlignment.CENTER).setBold(true).setForegroundColor(THEME.COLORS.PRIMARY);
+    const footer = doc.addFooter();
+    footer.appendParagraph(`${getPeriodLabel_()} · Documento confidencial de uso institucional`)
+        .setAttributes(S.NORMAL).setFontSize(8).setForegroundColor(C.TEXT_LIGHT)
+        .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
 
-    body.appendParagraph("\nINFORME DE EVALUACIÓN DOCENTE").setAttributes(THEME.STYLES.TITLE);
+    // --- Franja "grilla" Centenario + título ---
+    addGrillaStrip_(body);
+    body.appendParagraph("INFORME DE EVALUACIÓN DOCENTE").setAttributes(S.TITLE).setSpacingBefore(10);
+    body.appendParagraph(getPeriodLabel_()).setAttributes(S.NORMAL)
+        .setAlignment(DocumentApp.HorizontalAlignment.CENTER).setForegroundColor(C.SECONDARY).setBold(true);
 
-    // --- 2. DATOS GENERALES ---
-    addLabelValue(body, "Profesor: ", courseData.professor);
-    addLabelValue(body, "Curso: ", courseData.course);
-    addLabelValue(body, "Respuestas recibidas: ", courseData.responses.length.toString());
-
-    // --- 3. RESULTADOS CUANTITATIVOS ---
-    const stats = calculateCourseStats(courseData);
-
-    body.appendParagraph("\n1. RESULTADOS CUANTITATIVOS").setAttributes(THEME.STYLES.H1);
-
-    // 3.1 Tabla Docencia
-    body.appendParagraph("1.1. Evaluación del Desempeño Docente").setAttributes(THEME.STYLES.H2);
-
-    // Encabezados (Sin Desv. Est.)
-    const teachingHeaders = ["Dimensión Evaluada", "Media Curso", "Media Semestral", "% Acuerdo", "Estado"];
-    const table = body.appendTable([teachingHeaders]);
-
-    // Estilar Encabezado
-    const headerRow = table.getRow(0);
-    for (let i = 0; i < headerRow.getNumCells(); i++) {
-        const cell = headerRow.getCell(i);
-        cell.setBackgroundColor(THEME.COLORS.BG_HEADER).setPaddingTop(4).setPaddingBottom(4);
-        cell.getChild(0).asParagraph().setAttributes(THEME.STYLES.TABLE_HEADER);
-    }
-
-    const dimensionsAbove = [];
-    const dimensionsBelow = []; // Ahora solo contendrá las críticas (< 4.0)
-
-    for (let i = 0; i < CONFIG.TEACHING_DIMENSIONS_COUNT; i++) {
-        const dim = CONFIG.DIMENSIONS[i];
-        const s = stats.dimensions[i];
-        if (!s) continue;
-
-        const semMean = semesterStats.meansByDimension[dim] || CONFIG.SEMESTER_MEANS.DEFAULT;
-        
-        // Lógica de Comparación con Redondeo a 1 decimal
-        const meanCourse = Math.round(s.mean * 10) / 10;
-        const meanSem = Math.round(semMean * 10) / 10;
-        
-        let statusText = "";
-        let rowColor = THEME.COLORS.NEUTRAL;
-        let isCritical = false;
-
-        // 1. Sobre o Igual a la Media
-        if (meanCourse >= meanSem) {
-            statusText = "Sobre media"; // O "Estándar Alto"
-            rowColor = THEME.COLORS.POSITIVE;
-            dimensionsAbove.push({ name: dim, mean: s.mean });
-        } 
-        // 2. Bajo la Media pero Aceptable (>= 4.0)
-        else if (meanCourse >= CONFIG.THRESHOLDS.CRITICAL) {
-            statusText = "Adecuado";
-            rowColor = THEME.COLORS.NEUTRAL;
-        } 
-        // 3. Crítico (< 4.0)
-        else {
-            statusText = "Requiere Atención";
-            rowColor = THEME.COLORS.NEGATIVE;
-            isCritical = true;
-            dimensionsBelow.push({ name: dim, mean: s.mean });
+    // --- Ficha ---
+    const langs = courseData.langs || { es: 0, en: 0 };
+    const meta = [
+        ["Profesor/a", courseData.professor],
+        ["Curso", courseData.course],
+        ["Respuestas recibidas", `${n} (${langs.es} en español, ${langs.en} en inglés)`],
+        ["Fecha de emisión", Utilities.formatDate(new Date(), "America/Santiago", "dd-MM-yyyy")]
+    ];
+    const metaTable = body.appendTable(meta);
+    metaTable.setBorderColor("#d9d2cc").setBorderWidth(0.5).setColumnWidth(0, 130).setColumnWidth(1, 357);
+    for (let r = 0; r < meta.length; r++) {
+        for (let c = 0; c < 2; c++) {
+            const cell = metaTable.getCell(r, c).setPaddingTop(3).setPaddingBottom(3);
+            const p = cellPara_(cell).setAttributes(S.NORMAL);
+            if (c === 0) { cell.setBackgroundColor(C.BG_HEADER); p.setBold(true).setForegroundColor(C.PRIMARY); }
         }
+    }
 
-        const row = table.appendTableRow();
-
-        // Celdas de datos
-        const cells = [
-            dim,
-            s.mean.toFixed(1),
-            semMean.toFixed(1),
-            s.agreement + "%",
-            statusText
-        ];
-
-        cells.forEach((text, index) => {
-            const cell = row.appendTableCell(text);
-            const p = cell.getChild(0).asParagraph();
-
-            // Estilo base
-            if (index === 0) {
-                p.setAttributes(THEME.STYLES.TABLE_CELL_LEFT);
-            } else {
-                p.setAttributes(THEME.STYLES.TABLE_CELL_CENTER);
+    // --- Datos por dimensión ---
+    const rows = [];
+    const items = []; // solo dimensiones de docencia, para el análisis
+    const counts = { ABOVE: 0, EQUAL: 0, BELOW: 0, ATTENTION: 0 };
+    let idx = 0;
+    CONFIG.BLOCKS.forEach(b => {
+        rows.push({ type: 'block', title: b.title });
+        for (let k = 0; k < b.count; k++, idx++) {
+            const i = idx, name = CONFIG.DIMENSIONS[i], s = stats.dimensions[i];
+            const isSelf = i >= CONFIG.TEACHING_DIMENSIONS_COUNT;
+            const sem = semesterStats.meansByDimension[name];
+            if (!s || s.n === 0) {
+                const na = isNotApplicable(courseData.course, i);
+                rows.push({ type: 'dim', cells: [name, "—", na ? "—" : fmt(sem), "—", "—", "—", na ? "No aplica" : "Sin datos"], level: null });
+                continue;
             }
-
-            // Aplicar color y estilo condicional SOLO a la columna "Estado" (índice 4)
-            if (index === 4) {
-                p.setForegroundColor(rowColor);
-                // Negrita solo si es Positivo o Crítico (Adecuado se deja normal para no saturar)
-                p.setBold(rowColor !== THEME.COLORS.NEUTRAL); 
-            } else {
-                p.setForegroundColor(THEME.COLORS.TEXT_MAIN);
-                p.setBold(false);
-            }
-        });
-    }
-
-    // 3.2 Tabla Autoevaluación
-    body.appendParagraph("\n1.2. Autopercepción del Estudiante").setAttributes(THEME.STYLES.H2);
-    body.appendParagraph("Estas dimensiones reflejan la autoevaluación del estudiante sobre su propio desempeño y compromiso.")
-        .setAttributes(THEME.STYLES.NORMAL).setItalic(true);
-
-    const selfHeaders = ["Dimensión de Autoevaluación", "Media Curso", "% Acuerdo"];
-    const tableSelf = body.appendTable([selfHeaders]);
-
-    // Estilar Encabezado Autoevaluación
-    const headerRowSelf = tableSelf.getRow(0);
-    for (let i = 0; i < headerRowSelf.getNumCells(); i++) {
-        const cell = headerRowSelf.getCell(i);
-        cell.setBackgroundColor(THEME.COLORS.BG_HEADER).setPaddingTop(4).setPaddingBottom(4);
-        cell.getChild(0).asParagraph().setAttributes(THEME.STYLES.TABLE_HEADER);
-    }
-
-    for (let i = CONFIG.TEACHING_DIMENSIONS_COUNT; i < CONFIG.DIMENSIONS.length; i++) {
-        const s = stats.dimensions[i];
-        if (!s) continue;
-
-        const row = tableSelf.appendTableRow();
-        const cells = [
-            CONFIG.DIMENSIONS[i],
-            s.mean.toFixed(1),
-            s.agreement + "%"
-        ];
-
-        cells.forEach((text, index) => {
-            const cell = row.appendTableCell(text);
-            const p = cell.getChild(0).asParagraph();
-            if (index === 0) p.setAttributes(THEME.STYLES.TABLE_CELL_LEFT);
-            else p.setAttributes(THEME.STYLES.TABLE_CELL_CENTER);
-        });
-    }
-
-    // 3.3 Resumen
-    body.appendParagraph("\nResumen Estadístico (Desempeño Docente)").setAttributes(THEME.STYLES.H1);
-    body.appendParagraph(`Media General Docente: ${stats.generalMean.toFixed(1)}  |  Media General Semestre: ${semesterStats.globalMean.toFixed(1)}`)
-        .setAttributes(THEME.STYLES.NORMAL).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-
-    // --- 4. ANÁLISIS COMPARATIVO ---
-    body.appendParagraph("\n2. ANÁLISIS COMPARATIVO").setAttributes(THEME.STYLES.H1);
-
-    // Fortalezas
-    // Fortalezas
-    const pFort = body.appendParagraph("Fortalezas (Sobre o igual a media semestral):");
-    pFort.setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(THEME.COLORS.POSITIVE);
-
-    if (dimensionsAbove.length > 0) {
-        dimensionsAbove.forEach(d => body.appendListItem(d.name).setAttributes(THEME.STYLES.NORMAL));
-    } else {
-        body.appendParagraph("Ninguna dimensión destaca significativamente sobre la media semestral.").setAttributes(THEME.STYLES.NORMAL).setIndentStart(18);
-    }
-
-    // Mejoras (Solo Críticas)
-    // Nota: Si no hay críticas pero hay "Adecuadas" (bajo media > 3.0), no se listan aquí para no generar ruido negativo innecesario.
-    
-    if (dimensionsBelow.length > 0) {
-        const pMej = body.appendParagraph("\nOportunidades de Mejora Urgente (Bajo estándar 4.0):");
-        pMej.setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(THEME.COLORS.NEGATIVE);
-        dimensionsBelow.forEach(d => body.appendListItem(d.name).setAttributes(THEME.STYLES.NORMAL));
-    } else {
-        // Opcional: Indicar que no hay alertas críticas
-        const pMej = body.appendParagraph("\nOportunidades de Mejora:");
-        pMej.setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(THEME.COLORS.NEUTRAL);
-        body.appendParagraph("No se detectan dimensiones en nivel crítico (< 4.0).").setAttributes(THEME.STYLES.NORMAL).setIndentStart(18);
-    }
-
-    // --- 5. COMENTARIOS ---
-    body.appendParagraph("\n3. COMENTARIOS CUALITATIVOS").setAttributes(THEME.STYLES.H1);
-    if (courseData.comments.length > 0) {
-        courseData.comments.slice(0, 5).forEach(c => body.appendListItem(`"${c}"`).setAttributes(THEME.STYLES.NORMAL));
-        if (courseData.comments.length > 5) {
-            body.appendParagraph(`... y ${courseData.comments.length - 5} comentarios más.`).setAttributes(THEME.STYLES.NORMAL);
+            const level = classifyDimension(s.mean, sem, isSelf);
+            const dif = sem == null ? 0 : diffRounded(s.mean, sem);
+            const difStr = sem == null ? "—" : fmtDiff(dif);
+            rows.push({
+                type: 'dim', level, cells: [name, fmt(s.mean), fmt(sem), difStr,
+                    s.agreement + "%", s.dist.join(" · "), THEME.LEVELS[level].label]
+            });
+            if (!isSelf) { counts[level]++; items.push({ name, mean: s.mean, diff: dif, level }); }
         }
-    } else {
+    });
+
+    // --- 1. Resumen ---
+    body.appendParagraph("1. RESUMEN").setAttributes(S.H1);
+    const box = body.appendTable([[""]]);
+    const boxCell = box.getCell(0, 0).setBackgroundColor(C.BG_HEADER).setPaddingTop(8).setPaddingBottom(8).setPaddingLeft(10).setPaddingRight(10);
+    const boxHead = cellPara_(boxCell);
+    boxHead.setText(`Media general docente: ${fmt(stats.generalMean)}   |   Media general del semestre: ${fmt(semesterStats.globalMean)}   |   Respuestas: ${n}`);
+    boxHead.setAttributes(S.NORMAL).setBold(true).setForegroundColor(C.PRIMARY);
+    boxCell.appendParagraph(buildSummaryText(n, stats.generalMean, semesterStats.globalMean, counts, items.length))
+        .setAttributes(S.NORMAL).setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY).setSpacingBefore(4);
+
+    // --- 2. Análisis ---
+    body.appendParagraph("2. ANÁLISIS COMPARATIVO").setAttributes(S.H1);
+    addBulletGroup_(body, "Fortalezas (sobre la media semestral)", C.POSITIVE,
+        items.filter(d => d.level === 'ABOVE').sort((a, b) => b.diff - a.diff).slice(0, 3),
+        "Ninguna dimensión supera la media semestral en 0,2 puntos o más.");
+    addBulletGroup_(body, "Aspectos que requieren atención (bajo 4,0)", C.NEGATIVE,
+        items.filter(d => d.level === 'ATTENTION').sort((a, b) => a.mean - b.mean),
+        "Ninguna dimensión se ubica bajo 4,0.");
+    addBulletGroup_(body, "Aspectos a observar (bajo la media semestral, sobre 4,0)", C.TEXT_MAIN,
+        items.filter(d => d.level === 'BELOW').sort((a, b) => a.diff - b.diff).slice(0, 3),
+        "Ninguna dimensión se ubica claramente bajo la media semestral.");
+
+    // --- 3. Resultados (detalle) ---
+    body.appendPageBreak(); // la tabla completa va en su propia página
+    body.appendParagraph("3. RESULTADOS CUANTITATIVOS (DETALLE)").setAttributes(S.H1);
+    buildResultsTable_(body, rows);
+    body.appendParagraph("Escala: 1 = Totalmente en desacuerdo · 2 = En desacuerdo · 3 = Neutral · 4 = De acuerdo · 5 = Totalmente de acuerdo. " +
+        "Nivel: Sobre la media (≥ +0,2 respecto del semestre) · En la media (±0,2) · Bajo la media (≤ −0,2) · Requiere atención (< 4,0). " +
+        "% Acuerdo: respuestas 4 o 5. Respuestas 1·2·3·4·5: cuántas personas marcaron cada valor. La autoevaluación se compara con el semestre, pero no tiene umbral de atención.")
+        .setAttributes(S.NORMAL).setFontSize(8).setForegroundColor(C.TEXT_LIGHT).setItalic(false).setSpacingBefore(4);
+
+    // --- 4. Retroalimentación cualitativa ---
+    body.appendParagraph("4. RETROALIMENTACIÓN CUALITATIVA").setAttributes(S.H1);
+    body.appendParagraph("Comentarios del estudiantado reproducidos textualmente y sin identificar a quien los escribió. Se sugiere buscar patrones que se repitan, más que comentarios aislados, y distinguir lo accionable de lo descriptivo.")
+        .setAttributes(S.NORMAL).setItalic(true).setFontSize(9);
+    addCommentGroup_(body, "4.1. Comentarios dirigidos al profesor/a", courseData.comments);
+    addCommentGroup_(body, "4.2. Comentarios sobre la asignatura", courseData.commentsCourse || []);
+
+    // --- Nota metodológica ---
+    body.appendParagraph("NOTA METODOLÓGICA").setAttributes(S.H2);
+    body.appendParagraph(`Fuente: encuesta de evaluación de cursos aplicada a estudiantes (escala 1 a 5), ${getPeriodLabel_()}. ` +
+        `La media semestral agrupa las respuestas de todos los cursos evaluados (n = ${semesterStats.n}). ` +
+        `Con menos de ${CONFIG.THRESHOLDS.MIN_RESPONSES} respuestas los resultados son indicativos: una sola respuesta puede mover mucho la media. ` +
+        "La percepción estudiantil es una fuente de información entre otras; se recomienda complementarla con observación de clases y revisión de materiales. " +
+        "Este documento es confidencial y de uso formativo.")
+        .setAttributes(S.NORMAL).setFontSize(8).setForegroundColor(C.TEXT_LIGHT).setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY);
+
+        // --- Firma ---
+        body.appendParagraph("\n").setAttributes(S.NORMAL);
+        body.appendParagraph(CONFIG.SIGNATURE).setAttributes(S.NORMAL).setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
+
+        doc.saveAndClose();
+        return docId;
+    } catch (e) {
+        try { DriveApp.getFileById(docId).setTrashed(true); } catch (_) {}
+        throw e;
+    }
+}
+
+/** Primer párrafo de una celda; lo crea si la celda vacía no lo trae como párrafo. */
+function cellPara_(cell) {
+    const ch = cell.getNumChildren() ? cell.getChild(0) : null;
+    const p = ch && ch.getType() === DocumentApp.ElementType.PARAGRAPH ? ch.asParagraph() : null;
+    return p || cell.insertParagraph(0, "");
+}
+
+/** Franja de colores de la grilla del Centenario (una fila, celdas coloreadas). */
+function addGrillaStrip_(body) {
+    const colors = THEME.COLORS.GRILLA;
+    const t = body.appendTable([colors.map(() => "")]);
+    t.setBorderWidth(0);
+    colors.forEach((col, i) => {
+        t.setColumnWidth(i, 487 / colors.length);
+        const cell = t.getCell(0, i).setBackgroundColor(col).setPaddingTop(0).setPaddingBottom(0).setPaddingLeft(0).setPaddingRight(0);
+        cellPara_(cell).setFontSize(4).setSpacingBefore(0).setSpacingAfter(0);
+    });
+}
+
+/** Tabla de resultados con filas de bloque y chip de nivel en la última columna. */
+function buildResultsTable_(body, rows) {
+    const C = THEME.COLORS, S = THEME.STYLES;
+    const headers = ["Dimensión", "Media\ncurso", "Media\nsem.", "Dif.", "%\nAcuerdo", "Respuestas\n1·2·3·4·5", "Nivel"];
+    const table = body.appendTable([headers].concat(rows.map(r => r.type === 'block' ? [r.title, "", "", "", "", "", ""] : r.cells)));
+    table.setBorderColor("#d9d2cc").setBorderWidth(0.5);
+    TABLE_WIDTHS.forEach((w, i) => table.setColumnWidth(i, w));
+
+    for (let r = 0; r < table.getNumRows(); r++) {
+        const row = rows[r - 1];
+        for (let c = 0; c < headers.length; c++) {
+            const cell = table.getCell(r, c).setPaddingTop(3).setPaddingBottom(3).setPaddingLeft(4).setPaddingRight(4);
+            const p = cellPara_(cell);
+            p.setAttributes(c === 0 ? S.TABLE_CELL_LEFT : S.TABLE_CELL_CENTER).setFontSize(9);
+            if (r === 0) {
+                cell.setBackgroundColor(C.PRIMARY);
+                p.setAttributes(S.TABLE_HEADER).setForegroundColor("#ffffff").setFontSize(9);
+            } else if (row.type === 'block') {
+                cell.setBackgroundColor(C.BG_HEADER);
+                p.setBold(true).setForegroundColor(C.PRIMARY);
+            } else if (c === headers.length - 1 && row.level) {
+                const L = THEME.LEVELS[row.level];
+                cell.setBackgroundColor(L.bg);
+                p.setForegroundColor(L.fg).setBold(true).setFontSize(8);
+            }
+        }
+    }
+}
+
+function addBulletGroup_(body, title, color, list, emptyText) {
+    body.appendParagraph(title).setAttributes(THEME.STYLES.NORMAL).setBold(true).setForegroundColor(color).setSpacingBefore(6);
+    if (list.length === 0) {
+        body.appendParagraph(emptyText).setAttributes(THEME.STYLES.NORMAL).setIndentStart(18);
+        return;
+    }
+    list.forEach(d => body.appendListItem(`${d.name} (${fmt(d.mean)}; ${fmtDiff(d.diff)} vs. semestre)`).setAttributes(THEME.STYLES.NORMAL));
+}
+
+function addCommentGroup_(body, title, comments) {
+    body.appendParagraph(title).setAttributes(THEME.STYLES.H2);
+    if (!comments.length) {
         body.appendParagraph("No se registraron comentarios.").setAttributes(THEME.STYLES.NORMAL);
+        return;
     }
-
-    // --- 6. APRECIACIÓN GENERAL ---
-    body.appendParagraph("\n4. APRECIACIÓN GENERAL").setAttributes(THEME.STYLES.H1);
-
-    // Calcular porcentajes
-    const totalDimensions = CONFIG.TEACHING_DIMENSIONS_COUNT;
-    const countCritical = dimensionsBelow.length; // Las que están < 4.0
-    const countAbove = dimensionsAbove.length;    // Las que están >= Media
-    const countAdequate = totalDimensions - countCritical - countAbove; // Las que están entre 4.0 y Media
-
-    const percentCritical = (countCritical / totalDimensions) * 100;
-    const percentExcellent = (countAbove / totalDimensions) * 100;
-
-    let appreciation = "";
-
-    // Lógica basada en Prioridad: 1. Criticidad -> 2. Excelencia
-    if (countCritical === 0) {
-        if (percentExcellent >= 70) {
-            appreciation = "El desempeño docente es EXCELENTE, situándose por encima del promedio semestral en la gran mayoría de las dimensiones.";
-        } else if (percentExcellent >= 40) {
-            appreciation = "El desempeño docente es MUY BUENO, combinando dimensiones destacadas con un cumplimiento estancial sólido en todas las áreas.";
-        } else {
-            appreciation = "El desempeño docente es ADECUADO, cumpliendo satisfactoriamente con los estándares institucionales (sobre 4.0) en la totalidad de las dimensiones evaluadas.";
-        }
-    } else {
-        if (percentCritical <= 25) {
-            appreciation = "El desempeño docente es BUENO en términos generales, aunque presenta oportunidades de mejora específicas (bajo 4.0) que requieren atención focalizada.";
-        } else {
-            appreciation = "El desempeño docente requiere ATENCIÓN, presentando múltiples dimensiones por debajo del estándar mínimo esperado (4.0). Se sugiere revisar las oportunidades de mejora detectadas.";
-        }
+    const MAX = 12;
+    comments.slice(0, MAX).forEach(c => body.appendListItem(`“${c}”`).setAttributes(THEME.STYLES.NORMAL));
+    if (comments.length > MAX) {
+        body.appendParagraph(`… y ${comments.length - MAX} comentarios más (disponibles en la hoja de respuestas).`).setAttributes(THEME.STYLES.NORMAL).setItalic(true);
     }
-
-    const appTable = body.appendTable([[appreciation]]);
-    const appCell = appTable.getCell(0, 0);
-    appCell.setBackgroundColor(THEME.COLORS.BG_HEADER).setPaddingTop(10).setPaddingBottom(10).setPaddingLeft(10).setPaddingRight(10);
-    appCell.getChild(0).asParagraph().setAttributes(THEME.STYLES.NORMAL).setAlignment(DocumentApp.HorizontalAlignment.JUSTIFY);
-
-    // --- 7. FIRMA ---
-    body.appendParagraph("\n\n\n").setAttributes(THEME.STYLES.NORMAL);
-    const signature = body.appendParagraph("Luciano Cataldo\nCoordinación Académica\nCentro de Español Lengua Extranjera (CELE)\nDirección General de Asuntos Internacionales\nPontificia Universidad Católica de Valparaíso");
-    signature.setAlignment(DocumentApp.HorizontalAlignment.RIGHT);
-    signature.setAttributes(THEME.STYLES.NORMAL);
-
-    doc.saveAndClose();
-    return docId; // Retornar ID para el registro
 }
 
 /**
@@ -783,7 +853,179 @@ function logReportGenerated(professor, course, docId, folderUrl) {
         const fileUrl = `https://docs.google.com/document/d/${docId}/edit`;
         sheet.appendRow([new Date(), professor, course, docId, fileUrl, "PENDIENTE", ""]);
     } else {
-        console.error("No se pudo acceder a la hoja Registro_Reportes");
+        throw new Error("No se pudo acceder a la hoja Registro_Reportes");
+    }
+}
+
+/**
+ * Una fila por curso/profesor con las métricas para decidir dónde enfocarse, ordenadas por prioridad.
+ * Función pura (sin servicios de Google): se prueba con `node test/run.js`.
+ */
+function buildSummaryRows(processedData, semesterStats) {
+    const rows = Object.keys(processedData).map(key => {
+        const c = processedData[key];
+        const stats = calculateCourseStats(c);
+        let att = 0, below = 0, agreeNum = 0, agreeDen = 0, lowest = null;
+        for (let i = 0; i < CONFIG.TEACHING_DIMENSIONS_COUNT; i++) {
+            const s = stats.dimensions[i];
+            if (!s || s.n === 0) continue;
+            const name = CONFIG.DIMENSIONS[i];
+            const level = classifyDimension(s.mean, semesterStats.meansByDimension[name], false);
+            if (level === 'ATTENTION') att++; else if (level === 'BELOW') below++;
+            agreeNum += s.agreement * s.n;
+            agreeDen += s.n;
+            if (!lowest || s.mean < lowest.mean) lowest = { name, mean: s.mean };
+        }
+        const diff = diffRounded(stats.generalMean, semesterStats.globalMean);
+        return {
+            professor: c.professor, course: c.course, n: c.responses.length,
+            mean: stats.generalMean, diff, att, below, lowest,
+            agreement: agreeDen ? agreeNum / agreeDen / 100 : null,
+            comments: c.comments.length + c.commentsCourse.length,
+            reliable: c.responses.length >= CONFIG.THRESHOLDS.MIN_RESPONSES,
+            priority: priorityOf(att, diff),
+            dims: CONFIG.DIMENSIONS.map((_, i) => (stats.dimensions[i] && stats.dimensions[i].n ? stats.dimensions[i].mean : null))
+        };
+    });
+    return rows.sort(compareSummary);
+}
+
+/** Genera/actualiza la hoja "Resumen_Comparativo" (se reescribe completa cada vez). */
+function generateComparativeSummary() {
+    const ui = SpreadsheetApp.getUi();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const src = getResponsesSheet_();
+    if (!src) { ui.alert('⚠️ No encontré la hoja de respuestas.'); return; }
+
+    const processed = processData(src.getDataRange().getValues());
+    if (Object.keys(processed).length === 0) {
+        ui.alert(`⚠️ No se encontró ninguna respuesta válida en la hoja "${src.getName()}".`);
+        return;
+    }
+    const sem = calculateSemesterStats(processed);
+    const rows = buildSummaryRows(processed, sem);
+    const dims = CONFIG.DIMENSIONS;
+
+    const header = ["Prioridad", "Profesor/a", "Curso", "Respuestas", "Media docente", "Dif. vs semestre", "% Acuerdo",
+        "Dim. en atención (< 4,0)", "Dim. bajo la media", "Dimensión más baja", "Media más baja", "Comentarios", "Confiabilidad"].concat(dims);
+    const FIXED = 13;
+    const semRow = ["—", "MEDIA DEL SEMESTRE", "", sem.n, sem.globalMean, "", "", "", "", "", "", "", ""]
+        .concat(dims.map(d => sem.meansByDimension[d] == null ? "" : sem.meansByDimension[d]));
+    const body = rows.map(r => [r.priority, r.professor, r.course, r.n, r.mean, r.diff, r.agreement == null ? "" : r.agreement,
+        r.att, r.below, r.lowest ? r.lowest.name : "", r.lowest ? r.lowest.mean : "", r.comments,
+        r.reliable ? "Suficiente" : `Indicativo (n < ${CONFIG.THRESHOLDS.MIN_RESPONSES})`]
+        .concat(r.dims.map(v => (v == null ? "" : v))));
+    const all = [header, semRow].concat(body);
+
+    const sheet = ss.getSheetByName(CONFIG.SHEET_SUMMARY) || ss.insertSheet(CONFIG.SHEET_SUMMARY);
+    sheet.clear();
+    sheet.clearConditionalFormatRules();
+    sheet.getRange(1, 1, all.length, header.length).setValues(all);
+
+    // Formato
+    const C = THEME.COLORS;
+    const nCols = header.length, nRows = all.length;
+    sheet.getRange(1, 1, 1, nCols).setFontWeight("bold").setFontColor("#ffffff").setBackground(C.PRIMARY)
+        .setWrap(true).setVerticalAlignment("middle").setHorizontalAlignment("center");
+    sheet.getRange(2, 1, 1, nCols).setFontWeight("bold").setBackground(C.BG_HEADER);
+    sheet.setRowHeight(1, 120);
+    sheet.setFrozenRows(2);
+    sheet.setFrozenColumns(3);
+    sheet.setColumnWidth(1, 80); sheet.setColumnWidth(2, 170); sheet.setColumnWidth(3, 260);
+    sheet.setColumnWidths(4, 3, 80); sheet.setColumnWidth(7, 80); sheet.setColumnWidths(8, 2, 95);
+    sheet.setColumnWidth(10, 260); sheet.setColumnWidth(11, 80); sheet.setColumnWidth(12, 90); sheet.setColumnWidth(13, 130);
+    sheet.setColumnWidths(FIXED + 1, dims.length, 95);
+    if (nRows > 1) {
+        sheet.getRange(2, 5, nRows - 1, 1).setNumberFormat("0.0");
+        sheet.getRange(3, 6, Math.max(nRows - 2, 1), 1).setNumberFormat("+0.0;-0.0;0.0");
+        sheet.getRange(3, 7, Math.max(nRows - 2, 1), 1).setNumberFormat("0%");
+        sheet.getRange(2, 11, nRows - 1, 1).setNumberFormat("0.0");
+        sheet.getRange(2, FIXED + 1, nRows - 1, dims.length).setNumberFormat("0.0").setHorizontalAlignment("center");
+        sheet.getRange(2, 4, nRows - 1, 4).setHorizontalAlignment("center");
+    }
+    sheet.getRange(1, 1).setNote(
+        "Alta: " + CONFIG.THRESHOLDS.ATTENTION_HIGH + " o más dimensiones bajo " + CONFIG.THRESHOLDS.CRITICAL +
+        ", o media docente " + CONFIG.THRESHOLDS.DIFF_HIGH + " o más bajo el semestre.\n" +
+        "Media: 1 dimensión bajo " + CONFIG.THRESHOLDS.CRITICAL + ", o media docente " + CONFIG.THRESHOLDS.BAND + " o más bajo el semestre.\n" +
+        "Baja: el resto. Con menos de " + CONFIG.THRESHOLDS.MIN_RESPONSES + " respuestas los resultados son solo indicativos.\n" +
+        "Esta hoja se regenera completa cada vez; no escribas datos aquí.");
+
+    // Colores condicionales
+    const rules = [];
+    const prio = sheet.getRange(3, 1, Math.max(nRows - 2, 1), 1);
+    [["Alta", "#e73a34", "#ffffff"], ["Media", "#f4ce46", "#333333"], ["Baja", "#a3d1e3", "#24588d"]].forEach(([t, bg, fg]) =>
+        rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(t).setBackground(bg).setFontColor(fg).setBold(true).setRanges([prio]).build()));
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith("Indicativo").setBackground("#ece5e0").setFontColor("#e73a34")
+        .setRanges([sheet.getRange(3, 13, Math.max(nRows - 2, 1), 1)]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule().whenNumberLessThan(0).setFontColor("#e73a34")
+        .setRanges([sheet.getRange(3, 6, Math.max(nRows - 2, 1), 1)]).build());
+    rules.push(SpreadsheetApp.newConditionalFormatRule()
+        .setGradientMinpointWithValue("#ee7269", SpreadsheetApp.InterpolationType.NUMBER, "3")
+        .setGradientMidpointWithValue("#ffffff", SpreadsheetApp.InterpolationType.NUMBER, "4")
+        .setGradientMaxpointWithValue("#36a9e1", SpreadsheetApp.InterpolationType.NUMBER, "5")
+        .setRanges([sheet.getRange(3, FIXED + 1, Math.max(nRows - 2, 1), dims.length), sheet.getRange(3, 5, Math.max(nRows - 2, 1), 1)]).build());
+    sheet.setConditionalFormatRules(rules);
+
+    sheet.activate();
+    const count = { Alta: 0, Media: 0, Baja: 0 };
+    rows.forEach(r => count[r.priority]++);
+    ui.alert(`✅ Resumen comparativo actualizado (${rows.length} cursos).\n\nPrioridad Alta: ${count.Alta}\nMedia: ${count.Media}\nBaja: ${count.Baja}\n\nHoja: "${CONFIG.SHEET_SUMMARY}"`);
+}
+
+/**
+ * Exporta a PDF (desde Google Docs, con Roboto incrustada) los informes de "Registro_Reportes".
+ * Deja los PDF en una subcarpeta "PDF" junto a cada Doc y guarda el enlace en la columna H.
+ * Se puede repetir: salta los que ya tienen enlace (para regenerar uno, borra su celda de la columna H).
+ */
+function exportReportsToPdf() {
+    const ui = SpreadsheetApp.getUi();
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) { ui.alert('⚠️ Ya hay un proceso en curso. Espera a que termine.'); return; }
+    try {
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EMAIL_CONFIG.SHEET_LOG);
+        if (!sheet || sheet.getLastRow() < 2) { ui.alert('⚠️ No hay informes en "Registro_Reportes". Genera los reportes primero.'); return; }
+
+        const COL_PDF = 7; // columna H (0-based)
+        const headerCell = sheet.getRange(1, COL_PDF + 1);
+        if (!headerCell.getValue()) headerCell.setValue("URL PDF").setFontWeight("bold").setBackground("#ece5e0");
+
+        const rows = sheet.getDataRange().getValues();
+        const t0 = Date.now();
+        const pdfFolders = {};
+        let made = 0, done = 0, pending = 0;
+        const errors = [];
+
+        for (let i = 1; i < rows.length; i++) {
+            const docId = rows[i][EMAIL_CONFIG.COL_LOG_DOC_ID];
+            if (!docId) continue;
+            if (rows[i][COL_PDF]) { done++; continue; }
+            if (Date.now() - t0 > 270000) { pending++; continue; } // el límite de Apps Script es 6 min
+            try {
+                const file = DriveApp.getFileById(docId);
+                const parent = file.getParents().next();
+                const pid = parent.getId();
+                if (!pdfFolders[pid]) {
+                    const it = parent.getFoldersByName("PDF");
+                    pdfFolders[pid] = it.hasNext() ? it.next() : parent.createFolder("PDF");
+                }
+                const pdf = pdfFolders[pid].createFile(file.getAs(MimeType.PDF).setName(file.getName() + ".pdf"));
+                sheet.getRange(i + 1, COL_PDF + 1).setValue(pdf.getUrl());
+                made++;
+            } catch (e) {
+                console.error(`Error exportando PDF de ${rows[i][EMAIL_CONFIG.COL_LOG_PROFESSOR]}: ${e.message}`);
+                errors.push(`${rows[i][EMAIL_CONFIG.COL_LOG_PROFESSOR]}|${rows[i][EMAIL_CONFIG.COL_LOG_COURSE]}: ${e.message}`);
+            }
+        }
+
+        ui.alert(`${errors.length || pending ? '⚠️' : '✅'} Exportación a PDF\n\nNuevos: ${made}\nYa exportados antes: ${done}` +
+            (pending ? `\nPendientes (se acabó el tiempo): ${pending}. Vuelve a ejecutar.` : '') +
+            (errors.length ? `\nErrores: ${errors.length}\n${errors.join('\n')}` : '') +
+            `\n\nLos PDF están en la subcarpeta "PDF" de la carpeta de reportes.`);
+    } catch (e) {
+        console.error("Error fatal exportando PDF:", e);
+        ui.alert(`❌ Error crítico: ${e.message}`);
+    } finally {
+        lock.releaseLock();
     }
 }
 

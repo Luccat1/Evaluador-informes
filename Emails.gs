@@ -13,15 +13,12 @@
 const EMAIL_CONFIG = {
     SHEET_LOG: "Registro_Reportes",
     SHEET_DIR: "Directorio",
+    SHEET_CONFIG: "Configuración",
     SENDER_NAME: "Unidad de Evaluación Docente CELE", 
     SENDER_EMAIL: "cele.dgai@pucv.cl", // Cuenta delegada
     LOGO_URL: "https://comunicacionestrategica.pucv.cl/LOGO100/7/color.png",
     
-    // Lista fija de autoridades para copia (Hardcoded)
-    // Nota: Se corrigió el punto por coma entre pguerrero y alejandra.rojas
-    AUTHORITIES_CC: "luciano.cataldo@pucv.cl, esperanza.godoy@pucv.cl, ivania.yanez@pucv.cl, liarredondo@worldstrides.com, pguerrero@ifsa-butler.org, alejandra.rojas@apiexperience.com, rene.venegas@pucv.cl",
-    
-    SUBJECT_TEMPLATE: (curso) => `Resultados Evaluación Docente: ${curso} - 2º Semestre 2025`,
+    SUBJECT_TEMPLATE: (curso) => `Resultados Evaluación Docente: ${curso} - ${getPeriodLabel_()}`,
     
     // Columnas en 'Registro_Reportes' (0-based)
     COL_LOG_PROFESSOR: 1,
@@ -71,20 +68,21 @@ function getAliasesSafe_() {
 }
 
 /**
- * Convierte una cadena de emails (separada por , o ;) en un array limpio.
+ * Lee la lista global de correos en copia desde la hoja "Configuración".
  */
-function parseEmailList(input) {
-    if (!input) return [];
-    // Reemplazar ; por , y luego dividir
-    const normalized = String(input).replace(/;/g, ",");
-    return normalized.split(",")
-        .map(e => e.trim())
-        .filter(e => e.length > 0 && e.includes("@"));
+function getGlobalCcList_(ss) {
+    const sheetCfg = ss.getSheetByName(EMAIL_CONFIG.SHEET_CONFIG);
+    if (!sheetCfg) return [];
+    const rows = sheetCfg.getDataRange().getValues();
+    for (let i = 1; i < rows.length; i++) {
+        const key = (rows[i][0] || '').toString().trim().toUpperCase();
+        if (key === 'AUTHORITIES_CC') {
+            return parseEmailList(rows[i][1]);
+        }
+    }
+    return [];
 }
 
-/**
- * Proceso batch de envío de correos.
- */
 const LOCK_TIMEOUT_MS = 30000; // 30 segundos de espera para el bloqueo
 
 /**
@@ -118,22 +116,16 @@ function sendReportEmails() {
 
         const logData = sheetLog.getDataRange().getValues();
         const dirData = sheetDir.getDataRange().getValues();
-        
-        // Crear mapa de directorio
-        const directoryMap = {};
-        dirData.slice(1).forEach(row => {
-            const name = row[EMAIL_CONFIG.COL_DIR_NAME];
-            if (name) {
-                directoryMap[name.toString().trim().toLowerCase()] = {
-                    email: row[EMAIL_CONFIG.COL_DIR_EMAIL],
-                    cc: row[EMAIL_CONFIG.COL_DIR_CC]
-                };
-            }
-        });
+        const directoryMap = buildDirectoryMap(
+            dirData,
+            EMAIL_CONFIG.COL_DIR_NAME,
+            EMAIL_CONFIG.COL_DIR_EMAIL,
+            EMAIL_CONFIG.COL_DIR_CC
+        );
 
         let sentCount = 0;
         let errorCount = 0;
-        const globalCcList = parseEmailList(EMAIL_CONFIG.AUTHORITIES_CC);
+        const globalCcList = getGlobalCcList_(ss);
         const userEmail = Session.getActiveUser().getEmail();
 
         // Iterar por registros
@@ -148,25 +140,24 @@ function sendReportEmails() {
             const docId = row[EMAIL_CONFIG.COL_LOG_DOC_ID];
             const docUrl = row[EMAIL_CONFIG.COL_LOG_URL];
 
-            // Buscar datos contacto
-            const dirEntry = directoryMap[professorName.toString().trim().toLowerCase()];
+            // Buscar datos contacto (soporta múltiples profesores separados por coma)
+            const resolved = resolveRecipients(professorName, directoryMap, globalCcList);
 
-            if (!dirEntry || !dirEntry.email) {
+            if (!resolved.ok) {
                 sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ERROR: Email no encontrado");
+                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 2).setValue(
+                    resolved.missing.length ? `Falta en Directorio: ${resolved.missing.join(", ")}` : "Sin correo válido"
+                );
                 errorCount++;
                 continue;
             }
 
             try {
-                // Preparar Lista Total de CC (Autoridades + Específicos)
-                const ccSet = new Set(globalCcList);
-                const specificCcList = parseEmailList(dirEntry.cc);
-                specificCcList.forEach(e => ccSet.add(e));
-                
-                const finalCcList = Array.from(ccSet);
+                const toList = resolved.toEmails;
+                const finalCcList = resolved.ccEmails;
 
                 // 1. Dar Permisos de Lectura (Silencioso)
-                addViewerSilently_(docId, dirEntry.email.trim()); // Profesor
+                toList.forEach(email => addViewerSilently_(docId, email)); // Profesores
                 finalCcList.forEach(email => addViewerSilently_(docId, email)); // Copias
 
                 // 2. Construir y Enviar Correo
@@ -188,11 +179,11 @@ function sendReportEmails() {
                     emailOptions.from = EMAIL_CONFIG.SENDER_EMAIL;
                 }
 
-                GmailApp.sendEmail(dirEntry.email, EMAIL_CONFIG.SUBJECT_TEMPLATE(courseName), "", emailOptions);
+                GmailApp.sendEmail(toList.join(","), EMAIL_CONFIG.SUBJECT_TEMPLATE(courseName), "", emailOptions);
 
                 // 3. Actualizar Log
                 sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 1).setValue("ENVIADO");
-                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 2).setValue(`Enviado a: ${dirEntry.email}`);
+                sheetLog.getRange(i + 1, EMAIL_CONFIG.COL_LOG_STATUS + 2).setValue(`Enviado a: ${toList.join(", ")}`);
                 sentCount++;
 
             } catch (e) {
@@ -243,7 +234,7 @@ function getEmailTemplate(professorName, courseName, docUrl) {
                 
                 <p style="background-color: #f0f4f8; padding: 10px; border-left: 4px solid ${colorPrimary};">
                     <strong>${courseName}</strong><br>
-                    <span style="font-size: 13px; color: #555;">Segundo Semestre Académico 2025 - PUCV</span>
+                    <span style="font-size: 13px; color: #555;">${getPeriodLabel_()} - PUCV</span>
                 </p>
                 
                 <p>Este informe detalla la percepción de los estudiantes sobre el proceso de enseñanza-aprendizaje y busca ser un insumo para la reflexión y mejora continua de su práctica docente.</p>
@@ -296,6 +287,16 @@ function createDirectoryTemplate() {
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#cfe2f3");
     sheet.autoResizeColumns(1, 3);
+
+    // Crear hoja Configuración si no existe (para AUTHORITIES_CC fuera del código)
+    if (!ss.getSheetByName(EMAIL_CONFIG.SHEET_CONFIG)) {
+        const cfg = ss.insertSheet(EMAIL_CONFIG.SHEET_CONFIG);
+        cfg.appendRow(["Clave", "Valor", "Descripción"]);
+        cfg.appendRow(["AUTHORITIES_CC", "", "Correos en copia para todos los informes (separados por coma)"]);
+        cfg.setFrozenRows(1);
+        cfg.getRange(1, 1, 1, 3).setFontWeight("bold").setBackground("#cfe2f3");
+        cfg.autoResizeColumns(1, 3);
+    }
     
     SpreadsheetApp.getUi().alert('✅ Hoja creada. Llena los datos y borra el ejemplo.');
 }
@@ -312,7 +313,7 @@ function sendTestEmail() {
         return;
     }
 
-    const htmlBody = getEmailTemplate("Profesor de Prueba", "Curso Demo 2025 (Test)", "https://docs.google.com");
+    const htmlBody = getEmailTemplate("Profesor de Prueba", `Curso Demo ${getPeriodLabel_()} (Test)`, "https://docs.google.com");
     
     try {
         const emailOptions = {
